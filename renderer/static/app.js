@@ -63,15 +63,35 @@ function renderGraph(data) {
     // Build class-to-class links based on method calls (for invisible attraction force)
     const classClassLinks = [];
     const classPairMap = new Set();
+    const classToIncomingCount = {};
+    const classToOutgoingCount = {};
     callsLinks.forEach(link => {
         const sourceClass = data.nodes.find(n => n.id === link.source)?.class;
         const targetClass = data.nodes.find(n => n.id === link.target)?.class;
         if (sourceClass && targetClass && sourceClass !== targetClass) {
+            // Track in/out counts for x-positioning
+            classToOutgoingCount[sourceClass] = (classToOutgoingCount[sourceClass] || 0) + 1;
+            classToIncomingCount[targetClass] = (classToIncomingCount[targetClass] || 0) + 1;
+            
             const pairKey = [sourceClass, targetClass].sort().join('|');
             if (!classPairMap.has(pairKey)) {
                 classPairMap.add(pairKey);
                 classClassLinks.push({source: sourceClass, target: targetClass});
             }
+        }
+    });
+    
+    // Calculate x-positioning force for each node based on in/out ratio
+    classNodes.forEach(node => {
+        const outgoing = classToOutgoingCount[node.id] || 0;
+        const incoming = classToIncomingCount[node.id] || 0;
+        const total = outgoing + incoming;
+        if (total > 0) {
+            // Higher x-position for nodes with more incoming (sinks)
+            // Lower x-position for nodes with more outgoing (sources)
+            node._xWeight = incoming / total;
+        } else {
+            node._xWeight = 0.5; // No connections, stay in middle
         }
     });
     
@@ -83,7 +103,11 @@ function renderGraph(data) {
             .id(d => d.id)
             .distance(200)
             .strength(0.3))
-        .force("collision", d3.forceCollide().radius(100));
+        .force("collision", d3.forceCollide().radius(100))
+        .force("x", d3.forceX(d => {
+            // Pull sinks right, sources left
+            return 200 + (d._xWeight * 1000);
+        }).strength(0.1));
     
     // Draw calls links (method->method) - dashed, with arrows
     const callsLink = container.append("g")
