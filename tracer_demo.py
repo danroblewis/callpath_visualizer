@@ -38,7 +38,8 @@ class CallTracer:
                 'function': function_name,
                 'line': line_number,
                 'class': class_name,
-                'caller': None
+                'caller': None,
+                'depth': self.depth  # Track actual call depth
             }
             
             # Set caller if we have a call stack
@@ -136,31 +137,14 @@ if __name__ == '__main__':
     # Print results
     print(f"\nCaptured {len(events)} function calls:\n")
     
-    # Build a simple call chain visualization
-    call_chain = []
+    # Print with indentation showing actual call depth
     for i, event in enumerate(events, 1):
         class_part = f"{event['class']}." if event['class'] else ""
         filename = event['filename'].split('/')[-1]
         short_filename = filename.replace('.py', '')
         call_display = f"{short_filename}::{class_part}{event['function']}"
-        call_chain.append(call_display)
-    
-    # Print with indentation showing call depth
-    call_stack = []
-    for i, call in enumerate(call_chain, 1):
-        # Estimate depth based on repository/service/entity patterns
-        if 'repository' in call.lower() or 'service' in call.lower():
-            depth = 0 if not call_stack else 1
-        elif '__init__' in call:
-            depth = call_stack.count('__init__') if call_stack else 0
-        else:
-            depth = len(call_stack) if call_stack else 0
         
+        # Use actual call depth from tracer
+        depth = event.get('depth', 0)
         indent = "  " * depth
-        print(f"{i:2}. {indent}{call}")
-        
-        # Track stack (simplified)
-        if '__init__' in call:
-            call_stack.append('__init__')
-        elif call_stack and '__init__' in call_stack[-1]:
-            call_stack.pop()
+        print(f"{i:2}. {indent}{call_display}")
