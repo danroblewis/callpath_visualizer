@@ -420,7 +420,7 @@ function renderGraph(data) {
             
             gradient.append("stop")
                 .attr("offset", "100%")
-                .attr("stop-color", "#f1c40f") // Regular yellow at end (target)
+                .attr("stop-color", "#e74c3c") // Red at end (target)
                 .attr("stop-opacity", 1);
             
             d._gradientId = gradientId;
