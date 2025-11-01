@@ -311,7 +311,7 @@ function renderGraph(data) {
         const targetY = targetClass.y + 30 + (targetMethodIndex * 40) + 15;
         
         const isSameClass = sourceClass.id === targetClass.id;
-        const horizontalOffset = 40; // Distance to extend horizontally before curving
+        const horizontalOffset = 5; // Small horizontal extension (just a few pixels)
         
         // Stagger exit points vertically when multiple links from same method
         const exitIndex = d._exitIndex || 0;
@@ -393,19 +393,29 @@ function renderGraph(data) {
             const entryX = targetLeftX - horizontalOffset;
             const entryY = targetLeftY;
             
-            // Single smooth curve from source to target
-            const dx = targetLeftX - sourceRightX;
-            const dy = targetLeftY - sourceRightY;
+            // Smooth curve with small horizontal extensions
+            const dx = entryX - exitX;
+            const dy = entryY - exitY;
             
-            // Control points for smooth single curve with horizontal start and end
-            // First control point: start horizontal (same Y as source)
-            const ctrl1X = sourceRightX + dx * 0.3;
-            const ctrl1Y = sourceRightY;
-            // Second control point: end horizontal (same Y as target) for smooth entry
-            const ctrl2X = targetLeftX - dx * 0.3;
-            const ctrl2Y = targetLeftY;
+            // Exit curve: small horizontal extension from source to exit point
+            const exitCtrl1X = sourceRightX + (exitX - sourceRightX) * 0.6;
+            const exitCtrl1Y = sourceRightY;
+            const exitCtrl2X = exitX - 5;
+            const exitCtrl2Y = exitY;
             
-            return `M ${sourceRightX},${sourceRightY} C ${ctrl1X},${ctrl1Y} ${ctrl2X},${ctrl2Y} ${targetLeftX},${targetLeftY}`;
+            // Main curve: from exit to entry
+            const mainCtrl1X = exitX + dx * 0.2;
+            const mainCtrl1Y = exitY;
+            const mainCtrl2X = entryX - dx * 0.2;
+            const mainCtrl2Y = entryY;
+            
+            // Entry curve: small horizontal extension from entry point to target
+            const entryCtrl1X = entryX + 5;
+            const entryCtrl1Y = entryY;
+            const entryCtrl2X = entryX + (targetLeftX - entryX) * 0.6;
+            const entryCtrl2Y = entryY;
+            
+            return `M ${sourceRightX},${sourceRightY} C ${exitCtrl1X},${exitCtrl1Y} ${exitCtrl2X},${exitCtrl2Y} ${exitX},${exitY} C ${mainCtrl1X},${mainCtrl1Y} ${mainCtrl2X},${mainCtrl2Y} ${entryX},${entryY} C ${entryCtrl1X},${entryCtrl1Y} ${entryCtrl2X},${entryCtrl2Y} ${targetLeftX},${targetLeftY}`;
         }
     };
     
