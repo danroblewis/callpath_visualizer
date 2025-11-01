@@ -69,30 +69,98 @@ class CallTracer:
 
 # Test with sample code
 if __name__ == '__main__':
-    # Import sample code
     import sys
     from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).parent / 'sample_project'))
     
-    from animals import Dog, Animal
-    from person import Person
+    # Choose which project to demo
+    project = 'ddd'  # Options: 'ddd' or 'simple'
     
-    # Create tracer
-    tracer = CallTracer()
-    tracer.start_tracing()
+    if project == 'ddd':
+        # Import DDD sample code
+        sys.path.insert(0, str(Path(__file__).parent / 'sample_ddd_project'))
+        
+        from domain.entities.user import User
+        from domain.entities.product import Product
+        from infrastructure.repositories.user_repository import UserRepository
+        from infrastructure.repositories.order_repository import OrderRepository
+        from infrastructure.repositories.product_repository import ProductRepository
+        from domain.services.order_service import OrderService
+        from domain.services.inventory_service import InventoryService
+        from application.use_cases.create_order_use_case import CreateOrderUseCase
+        
+        # Create tracer
+        tracer = CallTracer()
+        tracer.start_tracing()
+        
+        # Execute DDD test scenario
+        # Setup repositories and services
+        user_repo = UserRepository()
+        order_repo = OrderRepository()
+        product_repo = ProductRepository()
+        inventory_service = InventoryService(product_repo)
+        order_service = OrderService(order_repo, product_repo, inventory_service)
+        
+        # Create use case
+        use_case = CreateOrderUseCase(order_service, inventory_service)
+        
+        # Create test data
+        user = User(1, "alice@example.com", "Alice")
+        product = Product(1, "Widget", 10.0, 5)
+        product_repo.save(product)
+        
+        # Execute the use case
+        order_items = [{'product': product, 'quantity': 2}]
+        result = use_case.execute(user, order_items)
+        
+        print(f"\nUse case result: {result}")
     
-    # Execute test scenario
-    person = Person("Alice")
-    person.pet.speak()
-    person.pet.fetch(person)
+    else:
+        # Import simple sample code
+        sys.path.insert(0, str(Path(__file__).parent / 'sample_project'))
+        
+        from animals import Dog, Animal
+        from person import Person
+        
+        # Create tracer
+        tracer = CallTracer()
+        tracer.start_tracing()
+        
+        # Execute simple test scenario
+        person = Person("Alice")
+        person.pet.speak()
+        person.pet.fetch(person)
     
     # Stop tracing
     events = tracer.stop_tracing()
     
     # Print results
-    print(f"Captured {len(events)} function calls:\n")
-    for event in events:
-        indent = "  " * (event.get('depth', 0))
+    print(f"\nCaptured {len(events)} function calls:\n")
+    
+    # Build a simple call chain visualization
+    call_chain = []
+    for i, event in enumerate(events, 1):
         class_part = f"{event['class']}." if event['class'] else ""
         filename = event['filename'].split('/')[-1]
-        print(f"{indent}{filename}:{event['line']} in {class_part}{event['function']}")
+        short_filename = filename.replace('.py', '')
+        call_display = f"{short_filename}::{class_part}{event['function']}"
+        call_chain.append(call_display)
+    
+    # Print with indentation showing call depth
+    call_stack = []
+    for i, call in enumerate(call_chain, 1):
+        # Estimate depth based on repository/service/entity patterns
+        if 'repository' in call.lower() or 'service' in call.lower():
+            depth = 0 if not call_stack else 1
+        elif '__init__' in call:
+            depth = call_stack.count('__init__') if call_stack else 0
+        else:
+            depth = len(call_stack) if call_stack else 0
+        
+        indent = "  " * depth
+        print(f"{i:2}. {indent}{call}")
+        
+        # Track stack (simplified)
+        if '__init__' in call:
+            call_stack.append('__init__')
+        elif call_stack and '__init__' in call_stack[-1]:
+            call_stack.pop()
