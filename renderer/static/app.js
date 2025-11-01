@@ -45,29 +45,45 @@ function renderGraph(data) {
         .attr("d", "M0,-5L10,0L0,5")
         .attr("fill", "#7f8c8d");
     
-    // Create simulation with different distances for different link types
-    const simulation = d3.forceSimulation(data.nodes)
-        .force("link", d3.forceLink(data.links)
-            .id(d => d.id)
-            .distance(d => d.type === 'contains' ? 30 : 250)
-            .strength(d => d.type === 'contains' ? 1.0 : 0.5))
-        .force("charge", d3.forceManyBody().strength(-800))
-        .force("center", d3.forceCenter(700, 500).strength(0.05));
-    
-    // Separate class and method nodes for different styling
+    // Separate class and method nodes
     const classNodes = data.nodes.filter(d => d.type === 'class');
     const methodNodes = data.nodes.filter(d => d.type === 'method');
     const containsLinks = data.links.filter(d => d.type === 'contains');
     const callsLinks = data.links.filter(d => d.type === 'calls');
     
-    // Draw contains links (class->method) - solid, light gray
-    const containsLink = container.append("g")
-        .attr("class", "contains-links")
-        .selectAll("line")
-        .data(containsLinks)
-        .enter().append("line")
-        .attr("stroke", "#95a5a6")
-        .attr("stroke-width", 1.5);
+    // Build map of class to methods
+    const classMethodsMap = {};
+    containsLinks.forEach(link => {
+        if (!classMethodsMap[link.source]) {
+            classMethodsMap[link.source] = [];
+        }
+        classMethodsMap[link.source].push(link.target);
+    });
+    
+    // Build class-to-class links based on method calls (for invisible attraction force)
+    const classClassLinks = [];
+    const classPairMap = new Set();
+    callsLinks.forEach(link => {
+        const sourceClass = data.nodes.find(n => n.id === link.source)?.class;
+        const targetClass = data.nodes.find(n => n.id === link.target)?.class;
+        if (sourceClass && targetClass && sourceClass !== targetClass) {
+            const pairKey = [sourceClass, targetClass].sort().join('|');
+            if (!classPairMap.has(pairKey)) {
+                classPairMap.add(pairKey);
+                classClassLinks.push({source: sourceClass, target: targetClass});
+            }
+        }
+    });
+    
+    // Create simulation with only class nodes
+    const simulation = d3.forceSimulation(classNodes)
+        .force("charge", d3.forceManyBody().strength(-1000))
+        .force("center", d3.forceCenter(700, 500).strength(0.2))
+        .force("classLink", d3.forceLink(classClassLinks)
+            .id(d => d.id)
+            .distance(200)
+            .strength(0.3))
+        .force("collision", d3.forceCollide().radius(100));
     
     // Draw calls links (method->method) - dashed, with arrows
     const callsLink = container.append("g")
@@ -96,13 +112,13 @@ function renderGraph(data) {
             tooltip.style("display", "none");
         });
     
-    // Draw class nodes
+    // Draw class groups with methods inside
     const classNode = container.append("g")
-        .attr("class", "class-nodes")
+        .attr("class", "class-groups")
         .selectAll("g")
         .data(classNodes)
         .enter().append("g")
-        .attr("class", "node")
+        .attr("class", "class-group")
         .call(d3.drag()
             .on("start", function(event, d) {
                 if (!event.active) simulation.alphaTarget(0.3).restart();
@@ -119,11 +135,12 @@ function renderGraph(data) {
                 d.fy = null;
             }));
     
-    // Class node styling
+    // Class name box
     classNode.append("rect")
-        .attr("width", 120)
+        .attr("class", "class-box")
+        .attr("width", 150)
         .attr("height", 40)
-        .attr("x", -60)
+        .attr("x", -75)
         .attr("y", -20)
         .attr("rx", 8)
         .attr("fill", "rgba(52, 152, 219, 0.15)")
@@ -131,69 +148,105 @@ function renderGraph(data) {
         .attr("stroke-width", 2);
     
     classNode.append("text")
+        .attr("class", "class-name")
         .attr("text-anchor", "middle")
         .text(d => d.name)
         .attr("fill", "#2c3e50")
         .attr("font-weight", "bold")
         .attr("font-size", "16px");
     
-    // Draw method nodes
-    const methodNode = container.append("g")
-        .attr("class", "method-nodes")
-        .selectAll("g")
-        .data(methodNodes)
-        .enter().append("g")
-        .attr("class", "node")
-        .call(d3.drag()
-            .on("start", function(event, d) {
-                if (!event.active) simulation.alphaTarget(0.3).restart();
-                d.fx = d.x;
-                d.fy = d.y;
-            })
-            .on("drag", function(event, d) {
-                d.fx = event.x;
-                d.fy = event.y;
-            })
-            .on("end", function(event, d) {
-                if (!event.active) simulation.alphaTarget(0);
-                d.fx = null;
-                d.fy = null;
-            }));
-    
-    // Method node styling - smaller
-    methodNode.append("rect")
-        .attr("width", d => Math.max(d.name.length * 7 + 10, 80))
-        .attr("height", 30)
-        .attr("x", d => -Math.max(d.name.length * 7 + 10, 80) / 2)
-        .attr("y", -15)
-        .attr("rx", 6)
-        .attr("fill", "rgba(46, 204, 113, 0.3)")
-        .attr("stroke", "#27ae60")
-        .attr("stroke-width", 2);
-    
-    methodNode.append("text")
-        .attr("text-anchor", "middle")
-        .text(d => d.name)
-        .attr("fill", "#1e8449")
-        .attr("font-weight", "600")
-        .attr("font-size", "11px");
+    // Method boxes inside each class group
+    classNode.each(function(classD) {
+        const methods = classMethodsMap[classD.id] || [];
+        const methodGroup = d3.select(this).append("g").attr("class", "methods");
+        
+        methods.forEach((methodId, i) => {
+            const method = methodNodes.find(m => m.id === methodId);
+            if (method) {
+                const methodBox = methodGroup.append("g")
+                    .attr("class", "method-box")
+                    .datum(method);
+                
+                methodBox.append("rect")
+                    .attr("width", d => Math.max(d.name.length * 7 + 10, 80))
+                    .attr("height", 30)
+                    .attr("x", d => -Math.max(d.name.length * 7 + 10, 80) / 2)
+                    .attr("y", 30 + (i * 40))
+                    .attr("rx", 6)
+                    .attr("fill", "rgba(46, 204, 113, 0.3)")
+                    .attr("stroke", "#27ae60")
+                    .attr("stroke-width", 2);
+                
+                methodBox.append("text")
+                    .attr("text-anchor", "middle")
+                    .text(d => d.name)
+                    .attr("fill", "#1e8449")
+                    .attr("font-weight", "600")
+                    .attr("font-size", "11px")
+                    .attr("x", 0)
+                    .attr("y", 47 + (i * 40));
+            }
+        });
+    });
     
     // Update positions on simulation tick
     simulation.on("tick", () => {
-        containsLink
-            .attr("x1", d => d.source.x)
-            .attr("y1", d => d.source.y)
-            .attr("x2", d => d.target.x)
-            .attr("y2", d => d.target.y);
+        // Constrain nodes within bounds
+        const margin = 50;
+        classNodes.forEach(node => {
+            node.x = Math.max(margin, Math.min(1400 - margin, node.x));
+            node.y = Math.max(margin, Math.min(1000 - margin, node.y));
+        });
         
         callsLink
-            .attr("x1", d => d.source.x)
-            .attr("y1", d => d.source.y)
-            .attr("x2", d => d.target.x)
-            .attr("y2", d => d.target.y);
+            .attr("x1", d => {
+                // Find method position from source class group
+                const sourceClass = classNodes.find(c => c.id === data.nodes.find(n => n.id === d.source)?.class);
+                if (sourceClass) {
+                    const methods = classMethodsMap[sourceClass.id] || [];
+                    const methodIndex = methods.indexOf(d.source);
+                    const method = methodNodes.find(m => m.id === d.source);
+                    if (method) {
+                        const methodBox = methodNodes.find(m => m.id === d.source);
+                        const methodWidth = Math.max(method.name.length * 7 + 10, 80);
+                        return sourceClass.x + methodWidth / 2;
+                    }
+                }
+                return d.source.x;
+            })
+            .attr("y1", d => {
+                const sourceClass = classNodes.find(c => c.id === data.nodes.find(n => n.id === d.source)?.class);
+                if (sourceClass) {
+                    const methods = classMethodsMap[sourceClass.id] || [];
+                    const methodIndex = methods.indexOf(d.source);
+                    return sourceClass.y + 30 + (methodIndex * 40) + 15;
+                }
+                return d.source.y;
+            })
+            .attr("x2", d => {
+                const targetClass = classNodes.find(c => c.id === data.nodes.find(n => n.id === d.target)?.class);
+                if (targetClass) {
+                    const methods = classMethodsMap[targetClass.id] || [];
+                    const methodIndex = methods.indexOf(d.target);
+                    const method = methodNodes.find(m => m.id === d.target);
+                    if (method) {
+                        const methodWidth = Math.max(method.name.length * 7 + 10, 80);
+                        return targetClass.x - methodWidth / 2;
+                    }
+                }
+                return d.target.x;
+            })
+            .attr("y2", d => {
+                const targetClass = classNodes.find(c => c.id === data.nodes.find(n => n.id === d.target)?.class);
+                if (targetClass) {
+                    const methods = classMethodsMap[targetClass.id] || [];
+                    const methodIndex = methods.indexOf(d.target);
+                    return targetClass.y + 30 + (methodIndex * 40) + 15;
+                }
+                return d.target.y;
+            });
         
         classNode.attr("transform", d => `translate(${d.x},${d.y})`);
-        methodNode.attr("transform", d => `translate(${d.x},${d.y})`);
     });
     
     // Zoom to fit when simulation ends
@@ -219,4 +272,3 @@ function renderGraph(data) {
 
 // Load graph on page load
 loadGraph();
-
