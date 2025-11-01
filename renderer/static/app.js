@@ -63,11 +63,26 @@ function renderGraph(data) {
     // Create container group for pan/zoom
     const container = svg.append("g");
     
-    // Add zoom behavior
+    // Track current force value for Ctrl+scroll adjustment
+    let currentForceStrength = -1000;
+    
+    // Add zoom behavior with Ctrl/Cmd+scroll override for force adjustment
     const zoom = d3.zoom()
         .scaleExtent([0.1, 4])
         .on("zoom", (event) => {
+            // Don't zoom if Ctrl/Cmd is held (we'll use that for force adjustment)
+            if (event.sourceEvent && (event.sourceEvent.ctrlKey || event.sourceEvent.metaKey)) {
+                return;
+            }
             container.attr("transform", event.transform);
+        })
+        .filter(function(event) {
+            // Allow zoom with wheel if Ctrl/Cmd is NOT held
+            if (event.type === 'wheel') {
+                return !event.ctrlKey && !event.metaKey;
+            }
+            // Allow other zoom gestures (pinch, etc.)
+            return true;
         });
     
     svg.call(zoom);
@@ -206,9 +221,12 @@ function renderGraph(data) {
         }
     });
     
+    // Create force for node repulsion (will be adjusted by slider)
+    let chargeForce = d3.forceManyBody().strength(-1000);
+    
     // Create simulation with only class nodes
     const simulation = d3.forceSimulation(classNodes)
-        .force("charge", d3.forceManyBody().strength(-1000))
+        .force("charge", chargeForce)
         .force("center", d3.forceCenter(700, 500).strength(0.2))
         .force("classLink", d3.forceLink(classClassLinks)
             .id(d => d.id)
@@ -219,6 +237,29 @@ function renderGraph(data) {
             // Pull sinks right, sources left
             return 200 + (d._xWeight * 1000);
         }).strength(0.1));
+    
+    // Add Ctrl/Cmd+scroll to adjust force (use native event listener for better Mac support)
+    svg.node().addEventListener('wheel', function(event) {
+        if (event.ctrlKey || event.metaKey) { // Support both Ctrl and Cmd (Mac)
+            event.preventDefault();
+            event.stopPropagation();
+            
+            // Determine scroll direction (negative = scroll up, positive = scroll down)
+            const delta = event.deltaY;
+            const step = 50; // Adjust force by this amount per scroll
+            
+            if (delta < 0) {
+                // Scrolling up - increase repulsion (more negative)
+                currentForceStrength = currentForceStrength - step;
+            } else {
+                // Scrolling down - decrease repulsion (less negative)
+                currentForceStrength = currentForceStrength + step;
+            }
+            
+            chargeForce.strength(currentForceStrength);
+            simulation.alpha(0.3).restart(); // Restart simulation with new force
+        }
+    }, { passive: false });
     
     // Helper function to get link start and end points for gradient
     const getLinkGradientCoords = (d) => {
