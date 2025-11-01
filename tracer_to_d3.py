@@ -35,28 +35,59 @@ def generate_d3_data(tracer_events):
     # Remove duplicates
     calls = list(set(calls))
     
-    # Build nodes (classes)
+    # Build nodes: classes + methods as separate nodes
     nodes = []
+    method_nodes = []
+    
     for class_name in sorted(classes_data.keys()):
         methods = sorted(classes_data[class_name])
+        # Add class node
         nodes.append({
             'id': class_name,
             'name': class_name,
-            'methods': methods,
+            'type': 'class',
             'method_count': len(methods)
         })
+        
+        # Add method nodes
+        for method in methods:
+            method_id = f"{class_name}::{method}"
+            method_nodes.append({
+                'id': method_id,
+                'name': method,
+                'type': 'method',
+                'class': class_name
+            })
     
-    # Build links (method calls between classes)
+    # Combine all nodes
+    all_nodes = nodes + method_nodes
+    
+    # Build links: class->method links + method->method links
     links = []
-    for from_class, from_method, to_class, to_method in calls:
+    
+    # First, add class-to-method links
+    for method_node in method_nodes:
         links.append({
-            'source': from_class,
-            'target': to_class,
+            'source': method_node['class'],
+            'target': method_node['id'],
+            'type': 'contains',
+            'source_method': None,
+            'target_method': None
+        })
+    
+    # Then, add method-to-method call links
+    for from_class, from_method, to_class, to_method in calls:
+        from_method_id = f"{from_class}::{from_method}"
+        to_method_id = f"{to_class}::{to_method}"
+        links.append({
+            'source': from_method_id,
+            'target': to_method_id,
+            'type': 'calls',
             'source_method': from_method,
             'target_method': to_method
         })
     
-    return {'nodes': nodes, 'links': links}
+    return {'nodes': all_nodes, 'links': links}
 
 
 def generate_html(data_json):
@@ -190,31 +221,10 @@ def generate_html(data_json):
     <script>
         const data = {json.dumps(data_json)};
         
-        // Build method locations for connection calculations
-        data.nodes.forEach(node => {{
-            // Calculate width based on longest method or class name
-            const longestText = Math.max(
-                ...node.methods.map(m => m.length),
-                node.name.length
-            );
-            // Use reasonable font width approximation (about 7px per character for 12px font)
-            node.width = Math.max(longestText * 7 + 30, node.name.length * 8 + 20);
-            node.height = node.method_count * 18 + 50; // Tighter spacing
-            
-            // Pre-calculate method positions relative to node center
-            node.methodPositions = {{}};
-            node.methods.forEach((method, i) => {{
-                node.methodPositions[method] = {{
-                    x: 0,
-                    y: -node.height / 2 + 35 + i * 18
-                }};
-            }});
-        }});
-        
         const svg = d3.select("#graph")
             .append("svg")
-            .attr("width", 1200)
-            .attr("height", 800);
+            .attr("width", 1400)
+            .attr("height", 1000);
         
         const tooltip = d3.select("#tooltip");
         
@@ -230,7 +240,7 @@ def generate_html(data_json):
         // Create container group for pan/zoom
         const container = svg.append("g");
         
-        // Add arrow marker
+        // Add arrow marker for method calls
         container.append("defs").append("marker")
             .attr("id", "arrowhead")
             .attr("viewBox", "0 -5 10 10")
@@ -243,23 +253,46 @@ def generate_html(data_json):
             .attr("d", "M0,-5L10,0L0,5")
             .attr("fill", "#7f8c8d");
         
-        // Create simulation
+        // Create simulation with different distances for different link types
         const simulation = d3.forceSimulation(data.nodes)
-            .force("link", d3.forceLink(data.links).id(d => d.id).distance(300))
-            .force("charge", d3.forceManyBody().strength(-1200))
-            .force("center", d3.forceCenter(600, 400))
-            .force("collision", d3.forceCollide().radius(d => Math.max(d.width / 2, d.height / 2) + 40));
+            .force("link", d3.forceLink(data.links)
+                .id(d => d.id)
+                .distance(d => d.type === 'contains' ? 40 : 150))
+            .force("charge", d3.forceManyBody().strength(-800))
+            .force("center", d3.forceCenter(700, 500));
         
-        // Draw links - connecting methods within nodes
-        const link = container.append("g")
+        // Separate class and method nodes for different styling
+        const classNodes = data.nodes.filter(d => d.type === 'class');
+        const methodNodes = data.nodes.filter(d => d.type === 'method');
+        const containsLinks = data.links.filter(d => d.type === 'contains');
+        const callsLinks = data.links.filter(d => d.type === 'calls');
+        
+        // Draw contains links (class->method) - solid, light gray
+        const containsLink = container.append("g")
+            .attr("class", "contains-links")
             .selectAll("line")
-            .data(data.links)
+            .data(containsLinks)
+            .enter().append("line")
+            .attr("stroke", "#95a5a6")
+            .attr("stroke-width", 1.5);
+        
+        // Draw calls links (method->method) - dashed, with arrows
+        const callsLink = container.append("g")
+            .attr("class", "calls-links")
+            .selectAll("line")
+            .data(callsLinks)
             .enter().append("line")
             .attr("class", "link")
+            .attr("stroke-dasharray", "3,3")
+            .attr("marker-end", "url(#arrowhead)")
             .on("mouseover", function(event, d) {{
                 d3.select(this).attr("class", "link hover");
+                const srcMethod = d.source.name || data.nodes.find(n => n.id === d.source).name;
+                const tgtMethod = d.target.name || data.nodes.find(n => n.id === d.target).name;
+                const srcClass = d.source.class || data.nodes.find(n => n.id === d.source)?.class || '';
+                const tgtClass = d.target.class || data.nodes.find(n => n.id === d.target)?.class || '';
                 tooltip.style("display", "block")
-                    .html(`<strong>${{d.source.name}}</strong>.${{d.source_method}}<br>→<br><strong>${{d.target.name}}</strong>.${{d.target_method}}`)
+                    .html(`<strong>${{srcClass}}</strong>.${{srcMethod}}<br>→<br><strong>${{tgtClass}}</strong>.${{tgtMethod}}`)
                     .style("left", (event.pageX + 10) + "px")
                     .style("top", (event.pageY - 10) + "px");
             }})
@@ -268,89 +301,105 @@ def generate_html(data_json):
                 tooltip.style("display", "none");
             }});
         
-        // Draw nodes
-        const node = container.append("g")
+        // Draw class nodes
+        const classNode = container.append("g")
+            .attr("class", "class-nodes")
             .selectAll("g")
-            .data(data.nodes)
+            .data(classNodes)
             .enter().append("g")
             .attr("class", "node")
-            .attr("transform", d => `translate(${{d.x || 0}},${{d.y || 0}})`);
+            .call(d3.drag()
+                .on("start", function(event, d) {{
+                    if (!event.active) simulation.alphaTarget(0.3).restart();
+                    d.fx = d.x;
+                    d.fy = d.y;
+                }})
+                .on("drag", function(event, d) {{
+                    d.fx = event.x;
+                    d.fy = event.y;
+                }})
+                .on("end", function(event, d) {{
+                    if (!event.active) simulation.alphaTarget(0);
+                    d.fx = null;
+                    d.fy = null;
+                }}));
         
-        // Add rectangle background
-        node.append("rect")
-            .attr("width", d => d.width)
-            .attr("height", d => d.height)
-            .attr("x", d => -d.width / 2)
-            .attr("y", d => -d.height / 2)
-            .on("mouseover", function(event, d) {{
-                d3.select(this).attr("fill", "rgba(41, 128, 185, 0.25)");
-            }})
-            .on("mouseout", function(event, d) {{
-                d3.select(this).attr("fill", "rgba(52, 152, 219, 0.15)");
-            }});
+        // Class node styling
+        classNode.append("rect")
+            .attr("width", 120)
+            .attr("height", 40)
+            .attr("x", -60)
+            .attr("y", -20)
+            .attr("rx", 8)
+            .attr("fill", "rgba(52, 152, 219, 0.15)")
+            .attr("stroke", "#2980b9")
+            .attr("stroke-width", 2);
         
-        // Add class name
-        node.append("text")
-            .attr("y", d => -d.height / 2 + 20)
+        classNode.append("text")
+            .attr("text-anchor", "middle")
             .text(d => d.name)
-            .attr("text-anchor", "middle");
+            .attr("fill", "#2c3e50")
+            .attr("font-weight", "bold")
+            .attr("font-size", "16px");
         
-        // Add methods with IDs for connections
-        node.append("g")
-            .attr("class", "methods")
-            .attr("transform", d => `translate(0,${{-d.height / 2 + 30}})`)
-            .selectAll("text")
-            .data(d => d.methods.map(m => ({{method: m, node: d}})))
-            .enter().append("text")
-            .attr("id", d => `method-${{d.node.id}}-${{d.method.replace(/_/g, '-')}}`)
-            .attr("class", "method-text")
-            .attr("y", (d, i) => i * 18 + 14)
-            .text(d => d.method)
-            .attr("text-anchor", "middle");
+        // Draw method nodes
+        const methodNode = container.append("g")
+            .attr("class", "method-nodes")
+            .selectAll("g")
+            .data(methodNodes)
+            .enter().append("g")
+            .attr("class", "node")
+            .call(d3.drag()
+                .on("start", function(event, d) {{
+                    if (!event.active) simulation.alphaTarget(0.3).restart();
+                    d.fx = d.x;
+                    d.fy = d.y;
+                }})
+                .on("drag", function(event, d) {{
+                    d.fx = event.x;
+                    d.fy = event.y;
+                }})
+                .on("end", function(event, d) {{
+                    if (!event.active) simulation.alphaTarget(0);
+                    d.fx = null;
+                    d.fy = null;
+                }}));
         
-        // Update positions on simulation tick - with method connections
+        // Method node styling - smaller
+        methodNode.append("rect")
+            .attr("width", d => Math.max(d.name.length * 7 + 10, 80))
+            .attr("height", 30)
+            .attr("x", d => -Math.max(d.name.length * 7 + 10, 80) / 2)
+            .attr("y", -15)
+            .attr("rx", 6)
+            .attr("fill", "rgba(46, 204, 113, 0.3)")
+            .attr("stroke", "#27ae60")
+            .attr("stroke-width", 2);
+        
+        methodNode.append("text")
+            .attr("text-anchor", "middle")
+            .text(d => d.name)
+            .attr("fill", "#1e8449")
+            .attr("font-weight", "600")
+            .attr("font-size", "11px");
+        
+        // Update positions on simulation tick
         simulation.on("tick", () => {{
-            link
-                .attr("x1", d => {{
-                    const srcNode = typeof d.source === 'object' ? d.source : data.nodes.find(n => n.id === d.source);
-                    const srcPos = srcNode.methodPositions[d.source_method];
-                    return srcNode.x + srcPos.x;
-                }})
-                .attr("y1", d => {{
-                    const srcNode = typeof d.source === 'object' ? d.source : data.nodes.find(n => n.id === d.source);
-                    const srcPos = srcNode.methodPositions[d.source_method];
-                    return srcNode.y + srcPos.y;
-                }})
-                .attr("x2", d => {{
-                    const tgtNode = typeof d.target === 'object' ? d.target : data.nodes.find(n => n.id === d.target);
-                    const tgtPos = tgtNode.methodPositions[d.target_method];
-                    return tgtNode.x + tgtPos.x;
-                }})
-                .attr("y2", d => {{
-                    const tgtNode = typeof d.target === 'object' ? d.target : data.nodes.find(n => n.id === d.target);
-                    const tgtPos = tgtNode.methodPositions[d.target_method];
-                    return tgtNode.y + tgtPos.y;
-                }});
+            containsLink
+                .attr("x1", d => typeof d.source === 'object' ? d.source.x : data.nodes.find(n => n.id === d.source).x)
+                .attr("y1", d => typeof d.source === 'object' ? d.source.y : data.nodes.find(n => n.id === d.source).y)
+                .attr("x2", d => typeof d.target === 'object' ? d.target.x : data.nodes.find(n => n.id === d.target).x)
+                .attr("y2", d => typeof d.target === 'object' ? d.target.y : data.nodes.find(n => n.id === d.target).y);
             
-            node.attr("transform", d => `translate(${{d.x}},${{d.y}})`);
+            callsLink
+                .attr("x1", d => typeof d.source === 'object' ? d.source.x : data.nodes.find(n => n.id === d.source).x)
+                .attr("y1", d => typeof d.source === 'object' ? d.source.y : data.nodes.find(n => n.id === d.source).y)
+                .attr("x2", d => typeof d.target === 'object' ? d.target.x : data.nodes.find(n => n.id === d.target).x)
+                .attr("y2", d => typeof d.target === 'object' ? d.target.y : data.nodes.find(n => n.id === d.target).y);
+            
+            classNode.attr("transform", d => `translate(${{d.x}},${{d.y}})`);
+            methodNode.attr("transform", d => `translate(${{d.x}},${{d.y}})`);
         }});
-        
-        // Add drag behavior
-        node.call(d3.drag()
-            .on("start", function(event, d) {{
-                if (!event.active) simulation.alphaTarget(0.3).restart();
-                d.fx = d.x;
-                d.fy = d.y;
-            }})
-            .on("drag", function(event, d) {{
-                d.fx = event.x;
-                d.fy = event.y;
-            }})
-            .on("end", function(event, d) {{
-                if (!event.active) simulation.alphaTarget(0);
-                d.fx = null;
-                d.fy = null;
-            }}));
     </script>
 </body>
 </html>
