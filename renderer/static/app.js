@@ -38,6 +38,21 @@ const calls_link_attrs = {
     "marker-end": "url(#arrowhead)"
 };
 
+const arrowhead_marker_attrs = {
+    id: "arrowhead",
+    viewBox: "0 -5 10 10",
+    refX: 5,
+    refY: 0,
+    markerWidth: 6,
+    markerHeight: 6,
+    orient: "auto"
+};
+
+const arrowhead_path_attrs = {
+    d: "M0,-5L10,0L0,5",
+    fill: "#7f8c8d"
+};
+
 async function loadGraph() {
     try {
         const response = await fetch('/api/trace');
@@ -91,16 +106,9 @@ function renderGraph(data) {
     
     // Add arrow marker for method calls
     defs.append("marker")
-        .attr("id", "arrowhead")
-        .attr("viewBox", "0 -5 10 10")
-        .attr("refX", 5)
-        .attr("refY", 0)
-        .attr("markerWidth", 6)
-        .attr("markerHeight", 6)
-        .attr("orient", "auto")
+        .attrs(arrowhead_marker_attrs)
         .append("path")
-        .attr("d", "M0,-5L10,0L0,5")
-        .attr("fill", "#7f8c8d");
+        .attrs(arrowhead_path_attrs);
     
     // We'll create individual gradients for each link dynamically based on their paths
     
@@ -411,12 +419,6 @@ function renderGraph(data) {
             const enterCtrl1Y = isTargetAbove ? enterY - 35 : enterY + 35;
             const enterCtrl2X = enterX - 10;
             const enterCtrl2Y = enterY;
-            
-            // Entry curve: entry point to method edge (very gentle horizontal curve)
-            const finalCtrl1X = enterX + 10;
-            const finalCtrl1Y = enterY;
-            const finalCtrl2X = enterX + (endX - enterX) * 0.7;
-            const finalCtrl2Y = enterY;
             
             return `M ${startX},${startY} C ${exitCtrl1X},${exitCtrl1Y} ${exitCtrl2X},${exitCtrl2Y} ${exitX},${exitY} C ${loopCtrl1X},${loopCtrl1Y} ${loopCtrl2X},${loopCtrl2Y} ${arcX},${arcY} C ${arcCtrl1X},${arcCtrl1Y} ${arcCtrl2X},${arcCtrl2Y} ${enterX},${enterY} C ${enterCtrl1X},${enterCtrl1Y} ${enterCtrl2X},${enterCtrl2Y} ${endX},${endY}`;
         } else {
