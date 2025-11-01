@@ -20,6 +20,9 @@ function renderGraph(data) {
     
     const tooltip = d3.select("#tooltip");
     
+    // Create container group for pan/zoom
+    const container = svg.append("g");
+    
     // Add zoom behavior
     const zoom = d3.zoom()
         .scaleExtent([0.1, 4])
@@ -28,9 +31,6 @@ function renderGraph(data) {
         });
     
     svg.call(zoom);
-    
-    // Create container group for pan/zoom
-    const container = svg.append("g");
     
     // Add arrow marker for method calls
     container.append("defs").append("marker")
@@ -49,9 +49,10 @@ function renderGraph(data) {
     const simulation = d3.forceSimulation(data.nodes)
         .force("link", d3.forceLink(data.links)
             .id(d => d.id)
-            .distance(d => d.type === 'contains' ? 40 : 150))
+            .distance(d => d.type === 'contains' ? 30 : 250)
+            .strength(d => d.type === 'contains' ? 1.0 : 0.5))
         .force("charge", d3.forceManyBody().strength(-800))
-        .force("center", d3.forceCenter(700, 500));
+        .force("center", d3.forceCenter(700, 500).strength(0.05));
     
     // Separate class and method nodes for different styling
     const classNodes = data.nodes.filter(d => d.type === 'class');
@@ -193,6 +194,26 @@ function renderGraph(data) {
         
         classNode.attr("transform", d => `translate(${d.x},${d.y})`);
         methodNode.attr("transform", d => `translate(${d.x},${d.y})`);
+    });
+    
+    // Zoom to fit when simulation ends
+    simulation.on("end", () => {
+        const bounds = container.node().getBBox();
+        const fullWidth = +svg.attr("width");
+        const fullHeight = +svg.attr("height");
+        const width = bounds.width;
+        const height = bounds.height;
+        const midX = bounds.x + width / 2;
+        const midY = bounds.y + height / 2;
+        
+        if (width && height) {
+            const scale = Math.min(fullWidth / width, fullHeight / height);
+            const translate = [fullWidth / 2 - scale * midX, fullHeight / 2 - scale * midY];
+            
+            svg.transition()
+                .duration(750)
+                .call(zoom.transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
+        }
     });
 }
 
