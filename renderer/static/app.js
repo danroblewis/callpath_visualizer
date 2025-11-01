@@ -114,13 +114,62 @@ function renderGraph(data) {
         methodOutgoingLinksMap[sourceMethodId].push(link);
     });
     
-    // Assign exit indices to each link
-    callsLinks.forEach(link => {
-        const sourceMethodId = link.source;
-        const linksFromMethod = methodOutgoingLinksMap[sourceMethodId];
-        link._exitIndex = linksFromMethod.indexOf(link);
-        link._totalExits = linksFromMethod.length;
-    });
+    // Function to assign exit indices based on relative target positions
+    const updateExitIndices = () => {
+        Object.keys(methodOutgoingLinksMap).forEach(sourceMethodId => {
+            const links = methodOutgoingLinksMap[sourceMethodId];
+            const sourceMethod = methodNodes.find(m => m.id === sourceMethodId);
+            if (!sourceMethod) return;
+            
+            const sourceClass = classNodes.find(c => c.id === sourceMethod.class);
+            if (!sourceClass) return;
+            
+            const sourceMethods = classMethodsMap[sourceClass.id] || [];
+            const sourceMethodIndex = sourceMethods.indexOf(sourceMethodId);
+            const sourceY = sourceClass.y + 30 + (sourceMethodIndex * 40) + 15;
+            
+            // Sort links by target position: primarily by Y (vertical), then by X (horizontal)
+            links.sort((linkA, linkB) => {
+                const targetNodeA = data.nodes.find(n => n.id === linkA.target);
+                const targetNodeB = data.nodes.find(n => n.id === linkB.target);
+                const targetClassA = classNodes.find(c => c.id === targetNodeA?.class);
+                const targetClassB = classNodes.find(c => c.id === targetNodeB?.class);
+                
+                if (!targetClassA || !targetClassB) return 0;
+                
+                const targetMethodsA = classMethodsMap[targetClassA.id] || [];
+                const targetMethodsB = classMethodsMap[targetClassB.id] || [];
+                const targetMethodIndexA = targetMethodsA.indexOf(linkA.target);
+                const targetMethodIndexB = targetMethodsB.indexOf(linkB.target);
+                
+                const targetYA = targetClassA.y + 30 + (targetMethodIndexA * 40) + 15;
+                const targetYB = targetClassB.y + 30 + (targetMethodIndexB * 40) + 15;
+                
+                // Primary sort: by Y position relative to source
+                const relativeYA = targetYA - sourceY;
+                const relativeYB = targetYB - sourceY;
+                
+                if (Math.abs(relativeYA - relativeYB) > 10) {
+                    // Significant vertical difference - sort by Y
+                    return relativeYA - relativeYB;
+                } else {
+                    // Similar vertical position - sort by X (rightmost first gets middle stagger)
+                    const targetXA = targetClassA.x;
+                    const targetXB = targetClassB.x;
+                    return targetXA - targetXB;
+                }
+            });
+            
+            // Assign exit indices based on sorted order
+            links.forEach((link, index) => {
+                link._exitIndex = index;
+                link._totalExits = links.length;
+            });
+        });
+    };
+    
+    // Initial assignment
+    updateExitIndices();
     
     // Build class-to-class links based on method calls (for invisible attraction force)
     const classClassLinks = [];
@@ -371,7 +420,7 @@ function renderGraph(data) {
             
             gradient.append("stop")
                 .attr("offset", "100%")
-                .attr("stop-color", "#e74c3c") // Red at end (target)
+                .attr("stop-color", "#f1c40f") // Regular yellow at end (target)
                 .attr("stop-opacity", 1);
             
             d._gradientId = gradientId;
@@ -467,6 +516,9 @@ function renderGraph(data) {
             node.x = Math.max(margin, Math.min(1400 - margin, node.x));
             node.y = Math.max(margin, Math.min(1000 - margin, node.y));
         });
+        
+        // Update exit indices based on current positions
+        updateExitIndices();
         
         callsLink
             .attr("d", d => generateLinkPath(d))
