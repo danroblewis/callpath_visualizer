@@ -33,7 +33,6 @@ const method_text_attrs = {
 };
 
 const calls_link_attrs = {
-    stroke: "#7f8c8d",
     "stroke-width": 2,
     "stroke-dasharray": "3,3",
     "marker-end": "url(#arrowhead)"
@@ -73,8 +72,10 @@ function renderGraph(data) {
     
     svg.call(zoom);
     
+    const defs = container.append("defs");
+    
     // Add arrow marker for method calls
-    container.append("defs").append("marker")
+    defs.append("marker")
         .attr("id", "arrowhead")
         .attr("viewBox", "0 -5 10 10")
         .attr("refX", 5)
@@ -85,6 +86,8 @@ function renderGraph(data) {
         .append("path")
         .attr("d", "M0,-5L10,0L0,5")
         .attr("fill", "#7f8c8d");
+    
+    // We'll create individual gradients for each link dynamically based on their paths
     
     // Separate class and method nodes
     const classNodes = data.nodes.filter(d => d.type === 'class');
@@ -99,6 +102,24 @@ function renderGraph(data) {
             classMethodsMap[link.source] = [];
         }
         classMethodsMap[link.source].push(link.target);
+    });
+    
+    // Build map of outgoing links per method (for staggering exit points)
+    const methodOutgoingLinksMap = {};
+    callsLinks.forEach(link => {
+        const sourceMethodId = link.source;
+        if (!methodOutgoingLinksMap[sourceMethodId]) {
+            methodOutgoingLinksMap[sourceMethodId] = [];
+        }
+        methodOutgoingLinksMap[sourceMethodId].push(link);
+    });
+    
+    // Assign exit indices to each link
+    callsLinks.forEach(link => {
+        const sourceMethodId = link.source;
+        const linksFromMethod = methodOutgoingLinksMap[sourceMethodId];
+        link._exitIndex = linksFromMethod.indexOf(link);
+        link._totalExits = linksFromMethod.length;
     });
     
     // Build class-to-class links based on method calls (for invisible attraction force)
@@ -150,6 +171,62 @@ function renderGraph(data) {
             return 200 + (d._xWeight * 1000);
         }).strength(0.1));
     
+    // Helper function to get link start and end points for gradient
+    const getLinkGradientCoords = (d) => {
+        const sourceNode = data.nodes.find(n => n.id === d.source);
+        const targetNode = data.nodes.find(n => n.id === d.target);
+        const sourceClass = classNodes.find(c => c.id === sourceNode?.class);
+        const targetClass = classNodes.find(c => c.id === targetNode?.class);
+        
+        if (!sourceClass || !targetClass || !sourceNode || !targetNode) {
+            return { x1: 0, y1: 0, x2: 0, y2: 0 };
+        }
+        
+        const sourceMethods = classMethodsMap[sourceClass.id] || [];
+        const targetMethods = classMethodsMap[targetClass.id] || [];
+        const sourceMethodIndex = sourceMethods.indexOf(d.source);
+        const targetMethodIndex = targetMethods.indexOf(d.target);
+        
+        const sourceMethod = methodNodes.find(m => m.id === d.source);
+        const targetMethod = methodNodes.find(m => m.id === d.target);
+        
+        if (!sourceMethod || !targetMethod) {
+            return { x1: 0, y1: 0, x2: 0, y2: 0 };
+        }
+        
+        const sourceMethodWidth = Math.max(sourceMethod.name.length * 7 + 10, 80);
+        const targetMethodWidth = Math.max(targetMethod.name.length * 7 + 10, 80);
+        
+        const sourceX = sourceClass.x;
+        const sourceY = sourceClass.y + 30 + (sourceMethodIndex * 40) + 15;
+        const targetX = targetClass.x;
+        const targetY = targetClass.y + 30 + (targetMethodIndex * 40) + 15;
+        
+        const isSameClass = sourceClass.id === targetClass.id;
+        const horizontalOffset = 40;
+        
+        const exitIndex = d._exitIndex || 0;
+        const totalExits = d._totalExits || 1;
+        const staggerAmount = 4;
+        const exitYOffset = (exitIndex - (totalExits - 1) / 2) * staggerAmount;
+        
+        if (isSameClass) {
+            const startX = sourceX + sourceMethodWidth / 2;
+            const startY = sourceY + exitYOffset;
+            const endX = targetX + targetMethodWidth / 2;
+            const endY = targetY;
+            
+            return { x1: startX, y1: startY, x2: endX, y2: endY };
+        } else {
+            const sourceRightX = sourceX + sourceMethodWidth / 2;
+            const sourceRightY = sourceY + exitYOffset;
+            const targetLeftX = targetX - targetMethodWidth / 2;
+            const targetLeftY = targetY;
+            
+            return { x1: sourceRightX, y1: sourceRightY, x2: targetLeftX, y2: targetLeftY };
+        }
+    };
+    
     // Helper function to generate orthogonal path with horizontal entry/exit
     const generateLinkPath = (d) => {
         const sourceNode = data.nodes.find(n => n.id === d.source);
@@ -187,10 +264,16 @@ function renderGraph(data) {
         const isSameClass = sourceClass.id === targetClass.id;
         const horizontalOffset = 40; // Distance to extend horizontally before curving
         
+        // Stagger exit points vertically when multiple links from same method
+        const exitIndex = d._exitIndex || 0;
+        const totalExits = d._totalExits || 1;
+        const staggerAmount = 4; // Pixels to stagger each link
+        const exitYOffset = (exitIndex - (totalExits - 1) / 2) * staggerAmount;
+        
         if (isSameClass) {
             // Same class: simple loop around the class box
             const startX = sourceX + sourceMethodWidth / 2;
-            const startY = sourceY;
+            const startY = sourceY + exitYOffset;
             const endX = targetX + targetMethodWidth / 2;
             const endY = targetY;
             
@@ -232,7 +315,7 @@ function renderGraph(data) {
         } else {
             // Different classes: horizontal exit, simple curve, horizontal entry
             const sourceRightX = sourceX + sourceMethodWidth / 2;
-            const sourceRightY = sourceY;
+            const sourceRightY = sourceY + exitYOffset;
             const targetLeftX = targetX - targetMethodWidth / 2;
             const targetLeftY = targetY;
             
@@ -267,9 +350,38 @@ function renderGraph(data) {
         .attr("class", "calls-links")
         .selectAll("path")
         .data(callsLinks)
-        .enter().append("path")
+        .enter()
+        .each(function(d, i) {
+            // Create unique gradient for each link based on its path
+            const coords = getLinkGradientCoords(d);
+            const gradientId = `linkGradient-${i}`;
+            
+            const gradient = defs.append("linearGradient")
+                .attr("id", gradientId)
+                .attr("gradientUnits", "userSpaceOnUse")
+                .attr("x1", coords.x1)
+                .attr("y1", coords.y1)
+                .attr("x2", coords.x2)
+                .attr("y2", coords.y2);
+            
+            gradient.append("stop")
+                .attr("offset", "0%")
+                .attr("stop-color", "#3498db") // Blue at start (source)
+                .attr("stop-opacity", 1);
+            
+            gradient.append("stop")
+                .attr("offset", "100%")
+                .attr("stop-color", "#e74c3c") // Red at end (target)
+                .attr("stop-opacity", 1);
+            
+            d._gradientId = gradientId;
+        })
+        .append("path")
         .attr("class", "link")
-        .attrs(calls_link_attrs)
+        .attr("stroke", d => `url(#${d._gradientId})`)
+        .attr("stroke-width", calls_link_attrs["stroke-width"])
+        .attr("stroke-dasharray", calls_link_attrs["stroke-dasharray"])
+        .attr("marker-end", calls_link_attrs["marker-end"])
         .attr("fill", "none") // Paths need fill:none for stroke to show
         .on("mouseover", function(event, d) {
             d3.select(this).attr("class", "link hover");
@@ -357,7 +469,21 @@ function renderGraph(data) {
         });
         
         callsLink
-            .attr("d", d => generateLinkPath(d));
+            .attr("d", d => generateLinkPath(d))
+            .each(function(d) {
+                // Update gradient coordinates as nodes move
+                if (d._gradientId) {
+                    const coords = getLinkGradientCoords(d);
+                    const gradient = defs.select(`#${d._gradientId}`);
+                    if (!gradient.empty()) {
+                        gradient
+                            .attr("x1", coords.x1)
+                            .attr("y1", coords.y1)
+                            .attr("x2", coords.x2)
+                            .attr("y2", coords.y2);
+                    }
+                }
+            });
         
         classNode.attr("transform", d => `translate(${d.x},${d.y})`);
     });
