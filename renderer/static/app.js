@@ -348,19 +348,36 @@ function renderGraph(data) {
             const enterX = endX + horizontalOffset;
             const enterY = endY;
             
-            // Simple path: straight out, curve up/down, curve back, straight in
-            // Use two connected curves for the loop
-            const ctrl1X = exitX;
-            const ctrl1Y = isTargetAbove ? exitY - 40 : exitY + 40;
-            const ctrl2X = arcX - 20;
-            const ctrl2Y = arcY;
+            // All curves: smooth horizontal exit, loop, smooth horizontal entry
+            // Exit curve: method edge to exit point (very gentle horizontal curve)
+            const exitCtrl1X = startX + (exitX - startX) * 0.7;
+            const exitCtrl1Y = startY;
+            const exitCtrl2X = exitX - 10;
+            const exitCtrl2Y = exitY;
             
-            const ctrl3X = arcX + 20;
-            const ctrl3Y = arcY;
-            const ctrl4X = enterX;
-            const ctrl4Y = isTargetAbove ? enterY - 40 : enterY + 40;
+            // Loop curves
+            const loopCtrl1X = exitX + 10;
+            const loopCtrl1Y = exitY;
+            const loopCtrl2X = exitX + 30;
+            const loopCtrl2Y = isTargetAbove ? exitY - 35 : exitY + 35;
             
-            return `M ${startX},${startY} L ${exitX},${exitY} C ${ctrl1X},${ctrl1Y} ${ctrl2X},${ctrl2Y} ${arcX},${arcY} C ${ctrl3X},${ctrl3Y} ${ctrl4X},${ctrl4Y} ${enterX},${enterY} L ${endX},${endY}`;
+            const arcCtrl1X = arcX - 30;
+            const arcCtrl1Y = arcY;
+            const arcCtrl2X = arcX + 30;
+            const arcCtrl2Y = arcY;
+            
+            const enterCtrl1X = enterX - 30;
+            const enterCtrl1Y = isTargetAbove ? enterY - 35 : enterY + 35;
+            const enterCtrl2X = enterX - 10;
+            const enterCtrl2Y = enterY;
+            
+            // Entry curve: entry point to method edge (very gentle horizontal curve)
+            const finalCtrl1X = enterX + 10;
+            const finalCtrl1Y = enterY;
+            const finalCtrl2X = enterX + (endX - enterX) * 0.7;
+            const finalCtrl2Y = enterY;
+            
+            return `M ${startX},${startY} C ${exitCtrl1X},${exitCtrl1Y} ${exitCtrl2X},${exitCtrl2Y} ${exitX},${exitY} C ${loopCtrl1X},${loopCtrl1Y} ${loopCtrl2X},${loopCtrl2Y} ${arcX},${arcY} C ${arcCtrl1X},${arcCtrl1Y} ${arcCtrl2X},${arcCtrl2Y} ${enterX},${enterY} C ${enterCtrl1X},${enterCtrl1Y} ${enterCtrl2X},${enterCtrl2Y} ${endX},${endY}`;
         } else {
             // Different classes: horizontal exit, simple curve, horizontal entry
             const sourceRightX = sourceX + sourceMethodWidth / 2;
@@ -376,21 +393,19 @@ function renderGraph(data) {
             const entryX = targetLeftX - horizontalOffset;
             const entryY = targetLeftY;
             
-            // Simple single bezier curve from exit to entry
-            // Use a gentle arc that curves toward the midpoint
-            const dx = entryX - exitX;
-            const dy = entryY - exitY;
-            const midX = (exitX + entryX) / 2;
-            const midY = (exitY + entryY) / 2;
+            // Single smooth curve from source to target
+            const dx = targetLeftX - sourceRightX;
+            const dy = targetLeftY - sourceRightY;
             
-            // Control points create a gentle curve: stay horizontal near endpoints, curve in middle
-            const ctrl1X = exitX + dx * 0.3;
-            const ctrl1Y = exitY; // Keep horizontal initially
-            const ctrl2X = entryX - dx * 0.3;
-            const ctrl2Y = midY; // Curve toward midpoint vertically
+            // Control points for smooth single curve with horizontal start and end
+            // First control point: start horizontal (same Y as source)
+            const ctrl1X = sourceRightX + dx * 0.3;
+            const ctrl1Y = sourceRightY;
+            // Second control point: end horizontal (same Y as target) for smooth entry
+            const ctrl2X = targetLeftX - dx * 0.3;
+            const ctrl2Y = targetLeftY;
             
-            // Single smooth bezier curve
-            return `M ${sourceRightX},${sourceRightY} L ${exitX},${exitY} C ${ctrl1X},${ctrl1Y} ${ctrl2X},${ctrl2Y} ${entryX},${entryY} L ${targetLeftX},${targetLeftY}`;
+            return `M ${sourceRightX},${sourceRightY} C ${ctrl1X},${ctrl1Y} ${ctrl2X},${ctrl2Y} ${targetLeftX},${targetLeftY}`;
         }
     };
     
