@@ -301,7 +301,7 @@ function renderGraph(data) {
         const targetY = targetClass.y + 30 + (targetMethodIndex * 40) + 15;
         
         const isSameClass = sourceClass.id === targetClass.id;
-        const horizontalOffset = 40;
+        const horizontalOffset = 5;
         
         const exitIndex = d._exitIndex || 0;
         const totalExits = d._totalExits || 1;
@@ -309,6 +309,7 @@ function renderGraph(data) {
         const exitYOffset = (exitIndex - (totalExits - 1) / 2) * staggerAmount;
         
         if (isSameClass) {
+            // For same-class calls, always exit from right and enter from right
             const startX = sourceX + sourceMethodWidth / 2;
             const startY = sourceY + exitYOffset;
             const endX = targetX + targetMethodWidth / 2;
@@ -369,58 +370,14 @@ function renderGraph(data) {
         const exitYOffset = (exitIndex - (totalExits - 1) / 2) * staggerAmount;
         
         if (isSameClass) {
-            // Same class: simple loop around the class box
+            // For same-class calls, always exit from right and enter from right
             const startX = sourceX + sourceMethodWidth / 2;
             const startY = sourceY + exitYOffset;
             const endX = targetX + targetMethodWidth / 2;
             const endY = targetY;
+            const loopSize = 40
             
-            // Exit horizontally
-            const exitX = startX + horizontalOffset;
-            const exitY = startY;
-            
-            // Determine if target is above or below source
-            const isTargetAbove = targetY < sourceY;
-            
-            // Calculate loop height - go above or below the class box
-            const classBoxTop = sourceClass.y - 20;
-            const classBoxBottom = sourceClass.y + 30 + (classMethodsMap[sourceClass.id]?.length || 0) * 40;
-            const loopHeight = isTargetAbove 
-                ? classBoxTop - 50  // Loop above class
-                : classBoxBottom + 50;  // Loop below class
-            
-            // Simple arc point
-            const arcX = exitX + 60;
-            const arcY = loopHeight;
-            
-            // Enter horizontally
-            const enterX = endX + horizontalOffset;
-            const enterY = endY;
-            
-            // All curves: smooth horizontal exit, loop, smooth horizontal entry
-            // Exit curve: method edge to exit point (very gentle horizontal curve)
-            const exitCtrl1X = startX + (exitX - startX) * 0.7;
-            const exitCtrl1Y = startY;
-            const exitCtrl2X = exitX - 10;
-            const exitCtrl2Y = exitY;
-            
-            // Loop curves
-            const loopCtrl1X = exitX + 10;
-            const loopCtrl1Y = exitY;
-            const loopCtrl2X = exitX + 30;
-            const loopCtrl2Y = isTargetAbove ? exitY - 35 : exitY + 35;
-            
-            const arcCtrl1X = arcX - 30;
-            const arcCtrl1Y = arcY;
-            const arcCtrl2X = arcX + 30;
-            const arcCtrl2Y = arcY;
-            
-            const enterCtrl1X = enterX - 30;
-            const enterCtrl1Y = isTargetAbove ? enterY - 35 : enterY + 35;
-            const enterCtrl2X = enterX - 10;
-            const enterCtrl2Y = enterY;
-            
-            return `M ${startX},${startY} C ${exitCtrl1X},${exitCtrl1Y} ${exitCtrl2X},${exitCtrl2Y} ${exitX},${exitY} C ${loopCtrl1X},${loopCtrl1Y} ${loopCtrl2X},${loopCtrl2Y} ${arcX},${arcY} C ${arcCtrl1X},${arcCtrl1Y} ${arcCtrl2X},${arcCtrl2Y} ${enterX},${enterY} C ${enterCtrl1X},${enterCtrl1Y} ${enterCtrl2X},${enterCtrl2Y} ${endX},${endY}`;
+            return `M ${startX},${startY} C ${startX+loopSize},${startY} ${endX+loopSize},${endY} ${endX},${endY}`;
         } else {
             // Different classes: horizontal exit, simple curve, horizontal entry
             const sourceRightX = sourceX + sourceMethodWidth / 2;
@@ -458,7 +415,12 @@ function renderGraph(data) {
             const entryCtrl2X = entryX + (targetLeftX - entryX) * 0.6;
             const entryCtrl2Y = entryY;
             
-            return `M ${sourceRightX},${sourceRightY} C ${exitCtrl1X},${exitCtrl1Y} ${exitCtrl2X},${exitCtrl2Y} ${exitX},${exitY} C ${mainCtrl1X},${mainCtrl1Y} ${mainCtrl2X},${mainCtrl2Y} ${entryX},${entryY} C ${entryCtrl1X},${entryCtrl1Y} ${entryCtrl2X},${entryCtrl2Y} ${targetLeftX},${targetLeftY}`;
+            return `
+                M ${sourceRightX},${sourceRightY} 
+                C ${exitCtrl1X},${exitCtrl1Y} ${exitCtrl2X},${exitCtrl2Y} ${exitX},${exitY} 
+                C ${mainCtrl1X},${mainCtrl1Y} ${mainCtrl2X},${mainCtrl2Y} ${entryX},${entryY} 
+                C ${entryCtrl1X},${entryCtrl1Y} ${entryCtrl2X},${entryCtrl2Y} ${targetLeftX},${targetLeftY}
+                `;
         }
     };
     

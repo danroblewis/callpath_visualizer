@@ -15,16 +15,15 @@ def generate_d3_data(tracer_events):
     # Build call relationships
     calls = []
     for event in tracer_events:
-        # Only track inter-class calls with a parent on the stack
+        # Track all method calls with a parent on the stack (including same-class calls)
         if event.get('caller') and event.get('class') and event['caller'].get('class'):
             from_class = event['caller']['class']
             from_method = event['caller']['function']
             to_class = event['class']
             to_method = event['function']
             
-            # Skip self-calls within the same class
-            if from_class != to_class:
-                calls.append((from_class, from_method, to_class, to_method))
+            # Include all calls, including same-class method calls
+            calls.append((from_class, from_method, to_class, to_method))
     
     # Remove duplicates
     calls = list(set(calls))
