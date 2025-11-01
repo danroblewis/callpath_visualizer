@@ -75,6 +75,8 @@ function renderGraph(data) {
         .data(callsLinks)
         .enter().append("line")
         .attr("class", "link")
+        .attr("stroke", "#7f8c8d")
+        .attr("stroke-width", 2)
         .attr("stroke-dasharray", "3,3")
         .attr("marker-end", "url(#arrowhead)")
         .on("mouseover", function(event, d) {
