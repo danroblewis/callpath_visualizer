@@ -67,6 +67,6 @@ def get_trace_data():
 @app.get("/", response_class=HTMLResponse)
 def index():
     """Serve the main visualization page."""
-    html_file = Path(__file__).parent / "index.html"
+    html_file = Path(__file__).parent / "static" / "index.html"
     return HTMLResponse(content=html_file.read_text())
 

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Call Path Visualization</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Call Path Visualization</h1>
+        <p class="subtitle">Runtime call traces from Domain-Driven Design project</p>
+        
+        <div id="graph">
+            <div class="loading">Loading call graph data...</div>
+        </div>
+        
+        <div class="legend">
+            <h3>Legend</h3>
+            <div class="legend-item">
+                <div class="legend-color" style="background: rgba(52, 152, 219, 0.15); border: 2px solid #2980b9;"></div>
+                <span><strong>Blue boxes:</strong> Classes</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: rgba(46, 204, 113, 0.3); border: 2px solid #27ae60;"></div>
+                <span><strong>Green boxes:</strong> Methods</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #95a5a6;"></div>
+                <span><strong>Gray lines:</strong> Class-to-method connections</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="border: 2px dashed #7f8c8d; background: none;"></div>
+                <span><strong>Dashed arrows:</strong> Method-to-method calls</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="tooltip" id="tooltip" style="display: none;"></div>
+    
+    <script src="/static/app.js"></script>
+</body>
+</html>
+
