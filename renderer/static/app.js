@@ -1,3 +1,44 @@
+// Node rendering attribute constants
+const class_box_attrs = {
+    width: 150,
+    height: 40,
+    x: -75,
+    y: -20,
+    rx: 8,
+    fill: "rgba(52, 152, 219, 0.15)",
+    stroke: "#2980b9",
+    "stroke-width": 2
+};
+
+const class_name_attrs = {
+    "text-anchor": "middle",
+    fill: "#2c3e50",
+    "font-weight": "bold",
+    "font-size": "16px"
+};
+
+const method_box_attrs = {
+    height: 30,
+    rx: 6,
+    fill: "rgba(46, 204, 113, 0.3)",
+    stroke: "#27ae60",
+    "stroke-width": 2
+};
+
+const method_text_attrs = {
+    "text-anchor": "middle",
+    fill: "#1e8449",
+    "font-weight": "600",
+    "font-size": "11px"
+};
+
+const calls_link_attrs = {
+    stroke: "#7f8c8d",
+    "stroke-width": 2,
+    "stroke-dasharray": "3,3",
+    "marker-end": "url(#arrowhead)"
+};
+
 async function loadGraph() {
     try {
         const response = await fetch('/api/trace');
@@ -116,10 +157,7 @@ function renderGraph(data) {
         .data(callsLinks)
         .enter().append("line")
         .attr("class", "link")
-        .attr("stroke", "#7f8c8d")
-        .attr("stroke-width", 2)
-        .attr("stroke-dasharray", "3,3")
-        .attr("marker-end", "url(#arrowhead)")
+        .attrs(calls_link_attrs)
         .on("mouseover", function(event, d) {
             d3.select(this).attr("class", "link hover");
             const srcMethod = d.source.name || data.nodes.find(n => n.id === d.source).name;
@@ -162,22 +200,12 @@ function renderGraph(data) {
     // Class name box
     classNode.append("rect")
         .attr("class", "class-box")
-        .attr("width", 150)
-        .attr("height", 40)
-        .attr("x", -75)
-        .attr("y", -20)
-        .attr("rx", 8)
-        .attr("fill", "rgba(52, 152, 219, 0.15)")
-        .attr("stroke", "#2980b9")
-        .attr("stroke-width", 2);
+        .attrs(class_box_attrs);
     
     classNode.append("text")
         .attr("class", "class-name")
-        .attr("text-anchor", "middle")
-        .text(d => d.name)
-        .attr("fill", "#2c3e50")
-        .attr("font-weight", "bold")
-        .attr("font-size", "16px");
+        .attrs(class_name_attrs)
+        .text(d => d.name);
     
     // Method boxes inside each class group
     classNode.each(function(classD) {
@@ -193,22 +221,15 @@ function renderGraph(data) {
                 
                 methodBox.append("rect")
                     .attr("width", d => Math.max(d.name.length * 7 + 10, 80))
-                    .attr("height", 30)
                     .attr("x", d => -Math.max(d.name.length * 7 + 10, 80) / 2)
                     .attr("y", 30 + (i * 40))
-                    .attr("rx", 6)
-                    .attr("fill", "rgba(46, 204, 113, 0.3)")
-                    .attr("stroke", "#27ae60")
-                    .attr("stroke-width", 2);
+                    .attrs(method_box_attrs);
                 
                 methodBox.append("text")
-                    .attr("text-anchor", "middle")
-                    .text(d => d.name)
-                    .attr("fill", "#1e8449")
-                    .attr("font-weight", "600")
-                    .attr("font-size", "11px")
+                    .attrs(method_text_attrs)
                     .attr("x", 0)
-                    .attr("y", 47 + (i * 40));
+                    .attr("y", 47 + (i * 40))
+                    .text(d => d.name);
             }
         });
     });
