@@ -150,14 +150,127 @@ function renderGraph(data) {
             return 200 + (d._xWeight * 1000);
         }).strength(0.1));
     
-    // Draw calls links (method->method) - dashed, with arrows
+    // Helper function to generate orthogonal path with horizontal entry/exit
+    const generateLinkPath = (d) => {
+        const sourceNode = data.nodes.find(n => n.id === d.source);
+        const targetNode = data.nodes.find(n => n.id === d.target);
+        const sourceClass = classNodes.find(c => c.id === sourceNode?.class);
+        const targetClass = classNodes.find(c => c.id === targetNode?.class);
+        
+        if (!sourceClass || !targetClass || !sourceNode || !targetNode) {
+            return "M 0,0";
+        }
+        
+        const sourceMethods = classMethodsMap[sourceClass.id] || [];
+        const targetMethods = classMethodsMap[targetClass.id] || [];
+        const sourceMethodIndex = sourceMethods.indexOf(d.source);
+        const targetMethodIndex = targetMethods.indexOf(d.target);
+        
+        const sourceMethod = methodNodes.find(m => m.id === d.source);
+        const targetMethod = methodNodes.find(m => m.id === d.target);
+        
+        if (!sourceMethod || !targetMethod) {
+            return "M 0,0";
+        }
+        
+        const sourceMethodWidth = Math.max(sourceMethod.name.length * 7 + 10, 80);
+        const targetMethodWidth = Math.max(targetMethod.name.length * 7 + 10, 80);
+        
+        // Source method center position
+        const sourceX = sourceClass.x;
+        const sourceY = sourceClass.y + 30 + (sourceMethodIndex * 40) + 15;
+        
+        // Target method center position
+        const targetX = targetClass.x;
+        const targetY = targetClass.y + 30 + (targetMethodIndex * 40) + 15;
+        
+        const isSameClass = sourceClass.id === targetClass.id;
+        const horizontalOffset = 40; // Distance to extend horizontally before curving
+        
+        if (isSameClass) {
+            // Same class: simple loop around the class box
+            const startX = sourceX + sourceMethodWidth / 2;
+            const startY = sourceY;
+            const endX = targetX + targetMethodWidth / 2;
+            const endY = targetY;
+            
+            // Exit horizontally
+            const exitX = startX + horizontalOffset;
+            const exitY = startY;
+            
+            // Determine if target is above or below source
+            const isTargetAbove = targetY < sourceY;
+            
+            // Calculate loop height - go above or below the class box
+            const classBoxTop = sourceClass.y - 20;
+            const classBoxBottom = sourceClass.y + 30 + (classMethodsMap[sourceClass.id]?.length || 0) * 40;
+            const loopHeight = isTargetAbove 
+                ? classBoxTop - 50  // Loop above class
+                : classBoxBottom + 50;  // Loop below class
+            
+            // Simple arc point
+            const arcX = exitX + 60;
+            const arcY = loopHeight;
+            
+            // Enter horizontally
+            const enterX = endX + horizontalOffset;
+            const enterY = endY;
+            
+            // Simple path: straight out, curve up/down, curve back, straight in
+            // Use two connected curves for the loop
+            const ctrl1X = exitX;
+            const ctrl1Y = isTargetAbove ? exitY - 40 : exitY + 40;
+            const ctrl2X = arcX - 20;
+            const ctrl2Y = arcY;
+            
+            const ctrl3X = arcX + 20;
+            const ctrl3Y = arcY;
+            const ctrl4X = enterX;
+            const ctrl4Y = isTargetAbove ? enterY - 40 : enterY + 40;
+            
+            return `M ${startX},${startY} L ${exitX},${exitY} C ${ctrl1X},${ctrl1Y} ${ctrl2X},${ctrl2Y} ${arcX},${arcY} C ${ctrl3X},${ctrl3Y} ${ctrl4X},${ctrl4Y} ${enterX},${enterY} L ${endX},${endY}`;
+        } else {
+            // Different classes: horizontal exit, simple curve, horizontal entry
+            const sourceRightX = sourceX + sourceMethodWidth / 2;
+            const sourceRightY = sourceY;
+            const targetLeftX = targetX - targetMethodWidth / 2;
+            const targetLeftY = targetY;
+            
+            // Exit point (horizontal offset from source)
+            const exitX = sourceRightX + horizontalOffset;
+            const exitY = sourceRightY;
+            
+            // Entry point (horizontal offset from target)
+            const entryX = targetLeftX - horizontalOffset;
+            const entryY = targetLeftY;
+            
+            // Simple single bezier curve from exit to entry
+            // Use a gentle arc that curves toward the midpoint
+            const dx = entryX - exitX;
+            const dy = entryY - exitY;
+            const midX = (exitX + entryX) / 2;
+            const midY = (exitY + entryY) / 2;
+            
+            // Control points create a gentle curve: stay horizontal near endpoints, curve in middle
+            const ctrl1X = exitX + dx * 0.3;
+            const ctrl1Y = exitY; // Keep horizontal initially
+            const ctrl2X = entryX - dx * 0.3;
+            const ctrl2Y = midY; // Curve toward midpoint vertically
+            
+            // Single smooth bezier curve
+            return `M ${sourceRightX},${sourceRightY} L ${exitX},${exitY} C ${ctrl1X},${ctrl1Y} ${ctrl2X},${ctrl2Y} ${entryX},${entryY} L ${targetLeftX},${targetLeftY}`;
+        }
+    };
+    
+    // Draw calls links (method->method) - curved paths with arrows
     const callsLink = container.append("g")
         .attr("class", "calls-links")
-        .selectAll("line")
+        .selectAll("path")
         .data(callsLinks)
-        .enter().append("line")
+        .enter().append("path")
         .attr("class", "link")
         .attrs(calls_link_attrs)
+        .attr("fill", "none") // Paths need fill:none for stroke to show
         .on("mouseover", function(event, d) {
             d3.select(this).attr("class", "link hover");
             const srcMethod = d.source.name || data.nodes.find(n => n.id === d.source).name;
@@ -244,52 +357,7 @@ function renderGraph(data) {
         });
         
         callsLink
-            .attr("x1", d => {
-                // Find method position from source class group
-                const sourceClass = classNodes.find(c => c.id === data.nodes.find(n => n.id === d.source)?.class);
-                if (sourceClass) {
-                    const methods = classMethodsMap[sourceClass.id] || [];
-                    const methodIndex = methods.indexOf(d.source);
-                    const method = methodNodes.find(m => m.id === d.source);
-                    if (method) {
-                        const methodBox = methodNodes.find(m => m.id === d.source);
-                        const methodWidth = Math.max(method.name.length * 7 + 10, 80);
-                        return sourceClass.x + methodWidth / 2;
-                    }
-                }
-                return d.source.x;
-            })
-            .attr("y1", d => {
-                const sourceClass = classNodes.find(c => c.id === data.nodes.find(n => n.id === d.source)?.class);
-                if (sourceClass) {
-                    const methods = classMethodsMap[sourceClass.id] || [];
-                    const methodIndex = methods.indexOf(d.source);
-                    return sourceClass.y + 30 + (methodIndex * 40) + 15;
-                }
-                return d.source.y;
-            })
-            .attr("x2", d => {
-                const targetClass = classNodes.find(c => c.id === data.nodes.find(n => n.id === d.target)?.class);
-                if (targetClass) {
-                    const methods = classMethodsMap[targetClass.id] || [];
-                    const methodIndex = methods.indexOf(d.target);
-                    const method = methodNodes.find(m => m.id === d.target);
-                    if (method) {
-                        const methodWidth = Math.max(method.name.length * 7 + 10, 80);
-                        return targetClass.x - methodWidth / 2;
-                    }
-                }
-                return d.target.x;
-            })
-            .attr("y2", d => {
-                const targetClass = classNodes.find(c => c.id === data.nodes.find(n => n.id === d.target)?.class);
-                if (targetClass) {
-                    const methods = classMethodsMap[targetClass.id] || [];
-                    const methodIndex = methods.indexOf(d.target);
-                    return targetClass.y + 30 + (methodIndex * 40) + 15;
-                }
-                return d.target.y;
-            });
+            .attr("d", d => generateLinkPath(d));
         
         classNode.attr("transform", d => `translate(${d.x},${d.y})`);
     });
