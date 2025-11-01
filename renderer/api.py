@@ -27,7 +27,6 @@ def get_trace_data():
     script_path = str(Path(__file__).parent.parent / 'run_ddd_scenario.py')
     
     # Run script with tracing (tracing starts before script loads and stops after execution)
-    from trace_runner import run_traced_script
     events = run_traced_script(script_path, project_root=project_root)
     
     # Generate D3 data
