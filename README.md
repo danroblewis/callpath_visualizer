@@ -19,6 +19,12 @@ Features:
 
 ## Quick Start
 
+### Installation
+
+```bash
+pip install -r requirements.txt
+```
+
 ### Run the Webapp
 
 ```bash
