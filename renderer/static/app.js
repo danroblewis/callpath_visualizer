@@ -53,6 +53,107 @@ const arrowhead_path_attrs = {
     fill: "#7f8c8d"
 };
 
+// Helper functions for path highlighting
+function highlightPaths(sourceId, targetId, callsLink, classNode, data, methodNodes, classMethodsMap) {
+    // Find all paths leading TO the source (source paths)
+    const sourcePaths = new Set();
+    const visitedNodes = new Set();
+    
+    function findSourcePaths(nodeId) {
+        if (visitedNodes.has(nodeId)) return;
+        visitedNodes.add(nodeId);
+        
+        // Find all links that have this node as target
+        callsLink.each(function(d) {
+            const linkTargetId = typeof d.target === 'string' ? d.target : (d.target?.id || d.target);
+            if (linkTargetId === nodeId) {
+                const linkSourceId = typeof d.source === 'string' ? d.source : (d.source?.id || d.source);
+                sourcePaths.add(linkSourceId + '::' + linkTargetId);
+                findSourcePaths(linkSourceId); // Recursively find paths leading to this source
+            }
+        });
+    }
+    
+    // Find all paths leading FROM the target (target paths)
+    const targetPaths = new Set();
+    const visitedTargetNodes = new Set();
+    
+    function findTargetPaths(nodeId) {
+        if (visitedTargetNodes.has(nodeId)) return;
+        visitedTargetNodes.add(nodeId);
+        
+        // Find all links that have this node as source
+        callsLink.each(function(d) {
+            const linkSourceId = typeof d.source === 'string' ? d.source : (d.source?.id || d.source);
+            if (linkSourceId === nodeId) {
+                const linkTargetId = typeof d.target === 'string' ? d.target : (d.target?.id || d.target);
+                targetPaths.add(linkSourceId + '::' + linkTargetId);
+                findTargetPaths(linkTargetId); // Recursively find paths from this target
+            }
+        });
+    }
+    
+    findSourcePaths(sourceId);
+    findTargetPaths(targetId);
+    
+    // Highlight source paths (leading TO)
+    callsLink.each(function(d) {
+        const linkSourceId = typeof d.source === 'string' ? d.source : (d.source?.id || d.source);
+        const linkTargetId = typeof d.target === 'string' ? d.target : (d.target?.id || d.target);
+        const linkKey = linkSourceId + '::' + linkTargetId;
+        
+        if (sourcePaths.has(linkKey)) {
+            d3.select(this).classed("source-path", true);
+        }
+        if (targetPaths.has(linkKey)) {
+            d3.select(this).classed("target-path", true);
+        }
+    });
+    
+    // Highlight source and target nodes
+    const allHighlightedNodes = new Set();
+    sourcePaths.forEach(pathKey => {
+        const [srcId] = pathKey.split('::');
+        allHighlightedNodes.add(srcId);
+    });
+    targetPaths.forEach(pathKey => {
+        const [, tgtId] = pathKey.split('::');
+        allHighlightedNodes.add(tgtId);
+    });
+    allHighlightedNodes.add(sourceId);
+    allHighlightedNodes.add(targetId);
+    
+    // Highlight class and method nodes
+    classNode.each(function(d) {
+        const classGroup = d3.select(this);
+        const methods = classMethodsMap[d.id] || [];
+        let hasHighlightedMethod = false;
+        
+        methods.forEach(methodId => {
+            if (allHighlightedNodes.has(methodId)) {
+                hasHighlightedMethod = true;
+                classGroup.select(`[data-method-id="${methodId}"]`)
+                    .classed("highlighted-method", true);
+            }
+        });
+        
+        if (hasHighlightedMethod || allHighlightedNodes.has(d.id)) {
+            classGroup.classed("highlighted-class", true);
+        }
+    });
+}
+
+function clearHighlights(callsLink, classNode) {
+    // Clear link highlighting
+    callsLink.classed("source-path", false)
+             .classed("target-path", false)
+             .classed("hover", false);
+    
+    // Clear node highlighting
+    classNode.classed("highlighted-class", false);
+    classNode.selectAll(".method-box").classed("highlighted-method", false);
+}
+
 // Custom force for rectangular collision detection
 function rectangularCollision() {
     let nodes;
@@ -509,18 +610,29 @@ function rebuildGraphWithFilters(data, container, svg, forceStrength) {
         .attr("marker-end", calls_link_attrs["marker-end"])
         .attr("fill", "none") // Paths need fill:none for stroke to show
         .on("mouseover", function(event, d) {
+            // Get source and target method IDs
+            const sourceId = typeof d.source === 'string' ? d.source : (d.source?.id || d.source);
+            const targetId = typeof d.target === 'string' ? d.target : (d.target?.id || d.target);
+            
+            // Highlight this link
             d3.select(this).attr("class", "link hover");
-            const srcMethod = d.source.name || data.nodes.find(n => n.id === d.source).name;
-            const tgtMethod = d.target.name || data.nodes.find(n => n.id === d.target).name;
-            const srcClass = d.source.class || data.nodes.find(n => n.id === d.source)?.class || '';
-            const tgtClass = d.target.class || data.nodes.find(n => n.id === d.target)?.class || '';
+            
+            // Find and highlight all source paths (paths leading TO the source)
+            highlightPaths(sourceId, targetId, callsLink, classNode, data, methodNodes, classMethodsMap);
+            
+            // Show tooltip
+            const srcMethod = d.source.name || data.nodes.find(n => n.id === sourceId)?.name;
+            const tgtMethod = d.target.name || data.nodes.find(n => n.id === targetId)?.name;
+            const srcClass = d.source.class || data.nodes.find(n => n.id === sourceId)?.class || '';
+            const tgtClass = d.target.class || data.nodes.find(n => n.id === targetId)?.class || '';
             tooltip.style("display", "block")
                 .html(`<strong>${srcClass}</strong>.${srcMethod}<br>→<br><strong>${tgtClass}</strong>.${tgtMethod}`)
                 .style("left", (event.pageX + 10) + "px")
                 .style("top", (event.pageY - 10) + "px");
         })
         .on("mouseout", function(d) {
-            d3.select(this).attr("class", "link");
+            // Clear all highlighting
+            clearHighlights(callsLink, classNode);
             tooltip.style("display", "none");
         });
     
@@ -580,9 +692,12 @@ function rebuildGraphWithFilters(data, container, svg, forceStrength) {
             if (method) {
                 const methodBox = methodGroup.append("g")
                     .attr("class", "method-box")
-                    .datum(method);
+                    .attr("data-method-id", method.id)
+                    .datum(method)
+                    .style("cursor", "pointer")
+                    .style("pointer-events", "all");
                 
-                methodBox.append("rect")
+                const methodRect = methodBox.append("rect")
                     .attr("width", d => Math.max(d.name.length * 7 + 10, 80))
                     .attr("x", d => -Math.max(d.name.length * 7 + 10, 80) / 2)
                     .attr("y", 30 + (i * 40))
@@ -591,15 +706,64 @@ function rebuildGraphWithFilters(data, container, svg, forceStrength) {
                     .attr("fill", d => d.was_called !== false ? method_box_attrs.fill : "rgba(149, 165, 166, 0.15)") // Gray if unused
                     .attr("stroke", d => d.was_called !== false ? method_box_attrs.stroke : "#95a5a6") // Gray border if unused
                     .attr("stroke-width", method_box_attrs["stroke-width"])
-                    .attr("stroke-dasharray", d => d.was_called === false ? "3,3" : null); // Dashed border if unused
+                    .attr("stroke-dasharray", d => d.was_called === false ? "3,3" : null) // Dashed border if unused
+                    .style("pointer-events", "all");
                 
                 methodBox.append("text")
                     .attrs(method_text_attrs)
                     .attr("x", 0)
                     .attr("y", 47 + (i * 40))
-                    .text(d => d.name);
+                    .text(d => d.name)
+                    .style("pointer-events", "none"); // Text doesn't capture events
+                
+                // Add hover handlers to both the group and the rect
+                const hoverHandler = function(event, d) {
+                    event.stopPropagation(); // Prevent class node hover from firing
+                    
+                    // Find all links where this method is source or target
+                    callsLink.each(function(linkD) {
+                        const linkSourceId = typeof linkD.source === 'string' ? linkD.source : (linkD.source?.id || linkD.source);
+                        const linkTargetId = typeof linkD.target === 'string' ? linkD.target : (linkD.target?.id || linkD.target);
+                        
+                        if (linkSourceId === d.id || linkTargetId === d.id) {
+                            highlightPaths(linkSourceId, linkTargetId, callsLink, classNode, data, methodNodes, classMethodsMap);
+                        }
+                    });
+                };
+                
+                const mouseoutHandler = function(event, d) {
+                    event.stopPropagation();
+                    clearHighlights(callsLink, classNode);
+                };
+                
+                methodBox.on("mouseover", hoverHandler)
+                         .on("mouseout", mouseoutHandler);
+                methodRect.on("mouseover", hoverHandler)
+                          .on("mouseout", mouseoutHandler);
             }
         });
+    });
+    
+    // Add hover handlers to class nodes
+    classNode.on("mouseover", function(event, d) {
+        // Find all methods in this class
+        const methods = classMethodsMap[d.id] || [];
+        
+        // For each method, highlight its paths
+        methods.forEach(methodId => {
+            // Find all links where this method is source or target
+            callsLink.each(function(linkD) {
+                const linkSourceId = typeof linkD.source === 'string' ? linkD.source : (linkD.source?.id || linkD.source);
+                const linkTargetId = typeof linkD.target === 'string' ? linkD.target : (linkD.target?.id || linkD.target);
+                
+                if (linkSourceId === methodId || linkTargetId === methodId) {
+                    highlightPaths(linkSourceId, linkTargetId, callsLink, classNode, data, methodNodes, classMethodsMap);
+                }
+            });
+        });
+    })
+    .on("mouseout", function(d) {
+        clearHighlights(callsLink, classNode);
     });
     
     // Update positions on simulation tick
@@ -666,7 +830,7 @@ function rebuildGraphWithFilters(data, container, svg, forceStrength) {
 function setupFilters(initialForceStrength) {
     // Filter functionality
     let filterRegex = null;
-    let showUnused = true;
+    let showUnused = false; // Default to hiding unused classes/methods
     let currentForceStrength = initialForceStrength;
     
     function applyFilters() {
@@ -767,6 +931,9 @@ function setupFilters(initialForceStrength) {
     // Add event listener to show unused toggle
     const showUnusedToggle = document.getElementById('show-unused-toggle');
     showUnusedToggle.addEventListener('change', applyFilters);
+    
+    // Apply initial filter state on page load
+    applyFilters();
 }
 
 // Load graph on page load

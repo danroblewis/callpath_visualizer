@@ -122,3 +122,34 @@ svg {
     color: #95a5a6;
 }
 
+/* Link highlighting styles */
+.link.hover {
+    stroke-width: 4 !important;
+    opacity: 1 !important;
+}
+
+.link.source-path {
+    stroke: #3498db !important;
+    stroke-width: 3 !important;
+    opacity: 0.8 !important;
+}
+
+.link.target-path {
+    stroke: #e74c3c !important;
+    stroke-width: 3 !important;
+    opacity: 0.8 !important;
+}
+
+/* Node highlighting styles */
+.class-group.highlighted-class .class-box {
+    stroke: #f39c12 !important;
+    stroke-width: 3 !important;
+    fill: rgba(243, 156, 18, 0.2) !important;
+}
+
+.method-box.highlighted-method rect {
+    stroke: #f39c12 !important;
+    stroke-width: 3 !important;
+    fill: rgba(243, 156, 18, 0.3) !important;
+}
+
