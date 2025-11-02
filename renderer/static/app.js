@@ -408,15 +408,27 @@ function renderGraph(data) {
                 d.fy = null;
             }));
     
-    // Class name box
-    classNode.append("rect")
-        .attr("class", "class-box")
-        .attrs(class_box_attrs);
-    
-    classNode.append("text")
-        .attr("class", "class-name")
-        .attrs(class_name_attrs)
-        .text(d => d.name);
+    // Class name box - dynamic width based on text
+    classNode.each(function(d) {
+        const classNameWidth = Math.max(d.name.length * 9 + 20, 150); // Slightly wider than methods
+        const classGroup = d3.select(this);
+        
+        classGroup.append("rect")
+            .attr("class", "class-box")
+            .attr("width", classNameWidth)
+            .attr("x", -classNameWidth / 2)
+            .attr("y", class_box_attrs.y)
+            .attr("height", class_box_attrs.height)
+            .attr("rx", class_box_attrs.rx)
+            .attr("fill", class_box_attrs.fill)
+            .attr("stroke", class_box_attrs.stroke)
+            .attr("stroke-width", class_box_attrs["stroke-width"]);
+        
+        classGroup.append("text")
+            .attr("class", "class-name")
+            .attrs(class_name_attrs)
+            .text(d => d.name);
+    });
     
     // Method boxes inside each class group
     classNode.each(function(classD) {
