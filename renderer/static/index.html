@@ -12,6 +12,11 @@
         <h1>Call Path Visualization</h1>
         <p class="subtitle">Runtime call traces from Domain-Driven Design project</p>
         
+        <div class="filter-controls">
+            <label for="class-filter">Filter by class name (regex):</label>
+            <input type="text" id="class-filter" placeholder="e.g., Repository|Service" />
+        </div>
+        
         <div id="graph">
             <div class="loading">Loading call graph data...</div>
         </div>

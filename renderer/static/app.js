@@ -496,6 +496,72 @@ function renderGraph(data) {
                 .call(zoom.transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
         }
     });
+    
+    // Filter functionality
+    let filterRegex = null;
+    
+    function applyFilter() {
+        const filterInput = document.getElementById('class-filter');
+        const filterValue = filterInput.value.trim();
+        
+        // Compile regex or set to null if empty
+        try {
+            filterRegex = filterValue ? new RegExp(filterValue, 'i') : null;
+        } catch (e) {
+            // Invalid regex - don't filter
+            filterRegex = null;
+            filterInput.style.borderColor = '#e74c3c';
+            return;
+        }
+        
+        filterInput.style.borderColor = '';
+        
+        // Helper function to check if a class name matches the filter
+        const isFiltered = (className) => {
+            if (!filterRegex || !className) return false;
+            return filterRegex.test(className);
+        };
+        
+        // Helper to get class name from a method node ID (format: "ClassName::methodName")
+        const getClassFromMethodId = (methodId) => {
+            if (!methodId) return null;
+            const match = methodId.match(/^(.+?)::/);
+            return match ? match[1] : null;
+        };
+        
+        // Filter class nodes
+        classNode.style("display", d => {
+            return isFiltered(d.id) ? "none" : "block";
+        });
+        
+        // Filter method nodes (inside class groups) - hide entire method group if class is filtered
+        classNode.selectAll(".methods").style("display", function() {
+            const classId = d3.select(this.parentElement).datum()?.id;
+            return isFiltered(classId) ? "none" : "block";
+        });
+        
+        // Filter call links - check both source and target classes
+        callsLink.style("display", d => {
+            // Links have source and target as method IDs (format: "ClassName::methodName")
+            const sourceId = typeof d.source === 'string' ? d.source : (d.source?.id || d.source);
+            const targetId = typeof d.target === 'string' ? d.target : (d.target?.id || d.target);
+            
+            const sourceClass = getClassFromMethodId(sourceId);
+            const targetClass = getClassFromMethodId(targetId);
+            
+            // Hide link if either source or target class is filtered
+            return (isFiltered(sourceClass) || isFiltered(targetClass)) ? "none" : "block";
+        });
+    }
+    
+    // Add event listener to filter input
+    const filterInput = document.getElementById('class-filter');
+    filterInput.addEventListener('input', applyFilter);
+    filterInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            applyFilter();
+        }
+    });
 }
 
 // Load graph on page load
