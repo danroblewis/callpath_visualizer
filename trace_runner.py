@@ -9,10 +9,11 @@ from typing import List, Dict, Any, Optional
 class CallTracer:
     """Tracer that records all function calls during execution."""
     
-    def __init__(self):
+    def __init__(self, entry_script: Optional[str] = None):
         self.call_stack = []
         self.call_events = []
         self.depth = 0
+        self.entry_script = entry_script  # Track the main script being executed
     
     def _should_skip_file(self, filename: str) -> bool:
         """Check if a file should be skipped (standard library, internal, etc.)."""
@@ -106,7 +107,8 @@ class CallTracer:
                 'line': line_number,
                 'class': class_name,
                 'caller': None,
-                'depth': self.depth  # Track actual call depth
+                'depth': self.depth,  # Track actual call depth
+                'entry_script': self.entry_script  # Track which script initiated execution
             }
             
             # Set caller if we have a call stack
@@ -157,7 +159,7 @@ def run_traced_script(script_path: str, project_root: Optional[str] = None) -> L
         sys.path.insert(0, str(Path(project_root).absolute()))
     
     # Create and start tracer BEFORE any imports
-    tracer = CallTracer()
+    tracer = CallTracer(entry_script=str(script_path))
     tracer.start_tracing()
     
     try:
@@ -202,7 +204,7 @@ def run_traced_module(module_path: str, function_name: Optional[str] = None,
         sys.path.insert(0, str(Path(project_root).absolute()))
     
     # Create and start tracer BEFORE any imports
-    tracer = CallTracer()
+    tracer = CallTracer(entry_script=None)  # Module import doesn't have a specific entry script
     tracer.start_tracing()
     
     try:
@@ -237,7 +239,7 @@ def run_traced_code(code_string: str, project_root: Optional[str] = None) -> Lis
         sys.path.insert(0, str(Path(project_root).absolute()))
     
     # Create and start tracer BEFORE execution
-    tracer = CallTracer()
+    tracer = CallTracer(entry_script=None)  # Code string execution doesn't have a specific entry script
     tracer.start_tracing()
     
     try:

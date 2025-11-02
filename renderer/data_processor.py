@@ -1,11 +1,18 @@
 """Process tracer events into D3.js network graph data."""
 
 from collections import defaultdict
+from pathlib import Path
 
 
-def generate_d3_data(tracer_events):
-    """Convert tracer events to D3.js network graph format."""
+def generate_d3_data(tracer_events, track_module_calls=False):
+    """
+    Convert tracer events to D3.js network graph format.
     
+    Args:
+        tracer_events: List of trace events from CallTracer
+        track_module_calls: If True, include calls from module-level code (e.g., __init__ from scripts).
+                          Default False to avoid showing incorrect module-to-class links.
+    """
     # Build class -> methods mapping
     classes_data = defaultdict(set)
     for event in tracer_events:
@@ -15,14 +22,47 @@ def generate_d3_data(tracer_events):
     # Build call relationships
     calls = []
     for event in tracer_events:
-        # Track all method calls with a parent on the stack (including same-class calls)
-        if event.get('caller') and event.get('class') and event['caller'].get('class'):
-            from_class = event['caller']['class']
-            from_method = event['caller']['function']
+        # Track all method calls (must have a class to be a method call)
+        if event.get('class'):
             to_class = event['class']
             to_method = event['function']
             
-            # Include all calls, including same-class method calls
+            # Determine the caller - handle both class-based callers and module-level callers
+            caller = event.get('caller')
+            if caller:
+                # Caller exists - check if it has a class or is module-level
+                if caller.get('class'):
+                    from_class = caller['class']
+                    from_method = caller['function']
+                else:
+                    # Module-level caller - use filename as identifier
+                    if not track_module_calls:
+                        # Skip module-level callers when flag is disabled
+                        continue
+                    caller_filename = caller.get('filename', 'module')
+                    from_class = f"<module:{Path(caller_filename).stem}>" if caller_filename else "<module>"
+                    from_method = caller.get('function', '<module>')
+                    # Add module-level "class" and its "method" to the data
+                    classes_data[from_class].add(from_method)
+            else:
+                # No caller in stack - this is a top-level call (module-level instantiation)
+                if not track_module_calls:
+                    # Skip module-level calls when flag is disabled
+                    continue
+                # Only create links if we have entry_script - we need to know which script initiated this
+                entry_script = event.get('entry_script')
+                if entry_script:
+                    script_path = Path(entry_script)
+                    from_class = f"<module:{script_path.stem}>"
+                    from_method = '<module>'  # Top-level code execution
+                    # Add module-level "class" to the data
+                    classes_data[from_class].add(from_method)
+                else:
+                    # No entry_script - we can't reliably determine the caller
+                    # Skip creating this link to avoid incorrect attribution
+                    continue
+            
+            # Include all calls, including same-class method calls and module-to-class calls
             calls.append((from_class, from_method, to_class, to_method))
     
     # Remove duplicates
