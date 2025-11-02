@@ -53,6 +53,88 @@ const arrowhead_path_attrs = {
     fill: "#7f8c8d"
 };
 
+// Custom force for rectangular collision detection
+function rectangularCollision() {
+    let nodes;
+    let strength = 0.7;
+    let iterations = 1;
+    
+    function force(alpha) {
+        const quadtree = d3.quadtree()
+            .x(d => d.x)
+            .y(d => d.y)
+            .addAll(nodes);
+        
+        for (let iteration = 0; iteration < iterations; ++iteration) {
+            for (let i = 0; i < nodes.length; ++i) {
+                const node = nodes[i];
+                const w = (node._bboxWidth || 100) / 2;
+                const h = (node._bboxHeight || 100) / 2;
+                
+                // Check for collisions with other nodes
+                quadtree.visit((quad, x0, y0, x1, y1) => {
+                    if (quad.data && quad.data !== node) {
+                        const other = quad.data;
+                        const ow = (other._bboxWidth || 100) / 2;
+                        const oh = (other._bboxHeight || 100) / 2;
+                        
+                        // Calculate distance between centers
+                        const dx = node.x - other.x;
+                        const dy = node.y - other.y;
+                        
+                        // Calculate minimum separation (rectangle collision)
+                        const minDx = w + ow;
+                        const minDy = h + oh;
+                        
+                        // Check for collision
+                        if (Math.abs(dx) < minDx && Math.abs(dy) < minDy) {
+                            // Collision detected - push nodes apart
+                            const overlapX = minDx - Math.abs(dx);
+                            const overlapY = minDy - Math.abs(dy);
+                            
+                            // Use the dimension with less overlap for separation
+                            let fx = 0;
+                            let fy = 0;
+                            
+                            if (overlapX < overlapY) {
+                                // Separate horizontally (less overlap in X)
+                                fx = (dx > 0 ? 1 : -1) * overlapX * strength * alpha;
+                            } else {
+                                // Separate vertically (less overlap in Y)
+                                fy = (dy > 0 ? 1 : -1) * overlapY * strength * alpha;
+                            }
+                            
+                            node.vx += fx;
+                            node.vy += fy;
+                            other.vx -= fx;
+                            other.vy -= fy;
+                            
+                            return true; // Don't descend further
+                        }
+                        
+                        return false; // Continue searching
+                    }
+                    return false;
+                });
+            }
+        }
+    }
+    
+    force.initialize = function(_) {
+        nodes = _;
+    };
+    
+    force.strength = function(_) {
+        return arguments.length ? (strength = +_, force) : strength;
+    };
+    
+    force.iterations = function(_) {
+        return arguments.length ? (iterations = +_, force) : iterations;
+    };
+    
+    return force;
+}
+
 async function loadGraph() {
     try {
         const response = await fetch('/api/trace');
@@ -272,6 +354,7 @@ function rebuildGraphWithFilters(data, container, svg, forceStrength) {
     });
     
     // Calculate x-positioning force for each node based on in/out ratio
+    // Also calculate bounding box dimensions for collision detection
     classNodes.forEach(node => {
         const outgoing = classToOutgoingCount[node.id] || 0;
         const incoming = classToIncomingCount[node.id] || 0;
@@ -283,6 +366,29 @@ function rebuildGraphWithFilters(data, container, svg, forceStrength) {
         } else {
             node._xWeight = 0.5; // No connections, stay in middle
         }
+        
+        // Calculate bounding box for collision detection
+        const classNameWidth = Math.max(node.name.length * 9 + 20, 150);
+        const methods = classMethodsMap[node.id] || [];
+        
+        // Find the maximum method width
+        let maxMethodWidth = 80; // Minimum method width
+        methods.forEach(methodId => {
+            const method = methodNodes.find(m => m.id === methodId);
+            if (method) {
+                const methodWidth = Math.max(method.name.length * 7 + 10, 80);
+                maxMethodWidth = Math.max(maxMethodWidth, methodWidth);
+            }
+        });
+        
+        // Bounding box: width is max of class name width and method widths, height includes all methods
+        node._bboxWidth = Math.max(classNameWidth, maxMethodWidth);
+        node._bboxHeight = 40 + (methods.length * 40); // Class box (40px) + methods (40px each)
+        
+        // Add padding for collision detection
+        const padding = 10;
+        node._bboxWidth += padding * 2;
+        node._bboxHeight += padding * 2;
     });
     
     // Create force for node repulsion (will be adjusted by slider)
@@ -296,7 +402,7 @@ function rebuildGraphWithFilters(data, container, svg, forceStrength) {
             .id(d => d.id)
             .distance(200)
             .strength(0.3))
-        .force("collision", d3.forceCollide().radius(100))
+        .force("collision", rectangularCollision())
         .force("x", d3.forceX(d => {
             // Pull sinks right, sources left
             return 200 + (d._xWeight * 1500);
