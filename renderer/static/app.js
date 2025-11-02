@@ -447,12 +447,20 @@ function renderGraph(data) {
     
     // Update positions on simulation tick
     simulation.on("tick", () => {
-        // Constrain nodes within bounds
+        // Constrain nodes within larger simulation bounds (extends past visible SVG area)
         const margin = 50;
+        const simWidth = 2000;  // Larger than SVG width (1400)
+        const simHeight = 1500; // Larger than SVG height (1000)
+        const centerX = simWidth / 2;
+        const centerY = simHeight / 2;
+        
         classNodes.forEach(node => {
-            node.x = Math.max(margin, Math.min(1400 - margin, node.x));
-            node.y = Math.max(margin, Math.min(1000 - margin, node.y));
+            node.x = Math.max(margin, Math.min(simWidth - margin, node.x));
+            node.y = Math.max(margin, Math.min(simHeight - margin, node.y));
         });
+        
+        // Update center force to match simulation bounds
+        simulation.force("center", d3.forceCenter(centerX, centerY).strength(0.2));
         
         // Update exit indices based on current positions
         updateExitIndices();
@@ -488,7 +496,7 @@ function renderGraph(data) {
         const midY = bounds.y + height / 2;
         
         if (width && height) {
-            const scale = Math.min(fullWidth / width, fullHeight / height);
+            const scale = Math.min(fullWidth / width, fullHeight / height) * 0.9; // 90% scale for padding
             const translate = [fullWidth / 2 - scale * midX, fullHeight / 2 - scale * midY];
             
             svg.transition()
