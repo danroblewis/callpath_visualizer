@@ -71,6 +71,20 @@ svg {
     background: #f8f9fa;
     border-radius: 8px;
     border-left: 4px solid #3498db;
+    display: flex;
+    align-items: flex-end;
+    gap: 30px;
+    flex-wrap: wrap;
+}
+.filter-section {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 200px;
+}
+.filter-section:first-child {
+    flex: 2;
+    max-width: 500px;
 }
 .filter-controls label {
     display: block;
@@ -79,9 +93,20 @@ svg {
     font-weight: 600;
     font-size: 14px;
 }
-.filter-controls input {
+.filter-controls label:has(input[type="checkbox"]) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    margin-bottom: 0;
+}
+.filter-controls input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+    cursor: pointer;
+}
+.filter-controls input[type="text"] {
     width: 100%;
-    max-width: 400px;
     padding: 8px 12px;
     border: 2px solid #e0e0e0;
     border-radius: 6px;
@@ -89,11 +114,11 @@ svg {
     font-family: 'Courier New', monospace;
     transition: border-color 0.2s;
 }
-.filter-controls input:focus {
+.filter-controls input[type="text"]:focus {
     outline: none;
     border-color: #3498db;
 }
-.filter-controls input::placeholder {
+.filter-controls input[type="text"]::placeholder {
     color: #95a5a6;
 }
 

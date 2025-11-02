@@ -64,11 +64,21 @@ async function loadGraph() {
     }
 }
 
+// Store original data globally so filters can access it
+let originalData = null;
+let currentSimulation = null;
+let currentContainer = null;
+let currentSvg = null;
+let currentZoom = null;
+
 function renderGraph(data) {
+    // Store original data for filtering
+    originalData = JSON.parse(JSON.stringify(data)); // Deep copy
+    
     // Clear loading message
     document.getElementById('graph').innerHTML = '';
     
-    const svg = d3.select("#graph")
+    currentSvg = d3.select("#graph")
         .append("svg")
         .attr("width", 1400)
         .attr("height", 1000);
@@ -76,20 +86,20 @@ function renderGraph(data) {
     const tooltip = d3.select("#tooltip");
     
     // Create container group for pan/zoom
-    const container = svg.append("g");
+    currentContainer = currentSvg.append("g");
     
     // Track current force value for Ctrl+scroll adjustment
     let currentForceStrength = -1000;
     
     // Add zoom behavior with Ctrl/Cmd+scroll override for force adjustment
-    const zoom = d3.zoom()
+    currentZoom = d3.zoom()
         .scaleExtent([0.1, 4])
         .on("zoom", (event) => {
             // Don't zoom if Ctrl/Cmd is held (we'll use that for force adjustment)
             if (event.sourceEvent && (event.sourceEvent.ctrlKey || event.sourceEvent.metaKey)) {
                 return;
             }
-            container.attr("transform", event.transform);
+            currentContainer.attr("transform", event.transform);
         })
         .filter(function(event) {
             // Allow zoom with wheel if Ctrl/Cmd is NOT held
@@ -100,23 +110,69 @@ function renderGraph(data) {
             return true;
         });
     
-    svg.call(zoom);
+    currentSvg.call(currentZoom);
     
-    const defs = container.append("defs");
+    // Initial render with unfiltered data
+    rebuildGraphWithFilters(data, currentContainer, currentSvg, currentForceStrength);
     
-    // Add arrow marker for method calls
-    defs.append("marker")
-        .attrs(arrowhead_marker_attrs)
-        .append("path")
-        .attrs(arrowhead_path_attrs);
+    // Add Ctrl/Cmd+scroll to adjust force (use native event listener for better Mac support)
+    currentSvg.node().addEventListener('wheel', function(event) {
+        if (event.ctrlKey || event.metaKey) { // Support both Ctrl and Cmd (Mac)
+            event.preventDefault();
+            event.stopPropagation();
+            
+            // Determine scroll direction (negative = scroll up, positive = scroll down)
+            const delta = event.deltaY;
+            const step = 50; // Adjust force by this amount per scroll
+            
+            if (delta < 0) {
+                // Scrolling up - increase repulsion (more negative)
+                currentForceStrength = currentForceStrength - step;
+            } else {
+                // Scrolling down - decrease repulsion (less negative)
+                currentForceStrength = currentForceStrength + step;
+            }
+            
+            if (currentSimulation) {
+                currentSimulation.force("charge").strength(currentForceStrength);
+                currentSimulation.alpha(0.3).restart(); // Restart simulation with new force
+            }
+        }
+    }, { passive: false });
     
-    // We'll create individual gradients for each link dynamically based on their paths
+    // Setup filter controls
+    setupFilters(currentForceStrength);
+}
+
+function rebuildGraphWithFilters(data, container, svg, forceStrength) {
+    // Stop existing simulation if any
+    if (currentSimulation) {
+        currentSimulation.stop();
+    }
+    
+    // Clear existing elements
+    container.selectAll(".calls-links").remove();
+    container.selectAll(".class-groups").remove();
+    container.selectAll("defs").selectAll("linearGradient").remove(); // Remove old gradients
+    
+    const defs = container.select("defs");
+    if (defs.empty()) {
+        container.append("defs");
+        const newDefs = container.select("defs");
+        // Add arrow marker for method calls
+        newDefs.append("marker")
+            .attrs(arrowhead_marker_attrs)
+            .append("path")
+            .attrs(arrowhead_path_attrs);
+    }
+    
+    const tooltip = d3.select("#tooltip");
     
     // Separate class and method nodes
-    const classNodes = data.nodes.filter(d => d.type === 'class');
-    const methodNodes = data.nodes.filter(d => d.type === 'method');
-    const containsLinks = data.links.filter(d => d.type === 'contains');
-    const callsLinks = data.links.filter(d => d.type === 'calls');
+    let classNodes = data.nodes.filter(d => d.type === 'class');
+    let methodNodes = data.nodes.filter(d => d.type === 'method');
+    let containsLinks = data.links.filter(d => d.type === 'contains');
+    let callsLinks = data.links.filter(d => d.type === 'calls');
     
     // Build map of class to methods
     const classMethodsMap = {};
@@ -230,10 +286,10 @@ function renderGraph(data) {
     });
     
     // Create force for node repulsion (will be adjusted by slider)
-    let chargeForce = d3.forceManyBody().strength(-1000);
+    let chargeForce = d3.forceManyBody().strength(forceStrength);
     
     // Create simulation with only class nodes
-    const simulation = d3.forceSimulation(classNodes)
+    currentSimulation = d3.forceSimulation(classNodes)
         .force("charge", chargeForce)
         .force("center", d3.forceCenter(700, 500).strength(0.2))
         .force("classLink", d3.forceLink(classClassLinks)
@@ -243,31 +299,8 @@ function renderGraph(data) {
         .force("collision", d3.forceCollide().radius(100))
         .force("x", d3.forceX(d => {
             // Pull sinks right, sources left
-            return 200 + (d._xWeight * 1000);
-        }).strength(0.1));
-    
-    // Add Ctrl/Cmd+scroll to adjust force (use native event listener for better Mac support)
-    svg.node().addEventListener('wheel', function(event) {
-        if (event.ctrlKey || event.metaKey) { // Support both Ctrl and Cmd (Mac)
-            event.preventDefault();
-            event.stopPropagation();
-            
-            // Determine scroll direction (negative = scroll up, positive = scroll down)
-            const delta = event.deltaY;
-            const step = 50; // Adjust force by this amount per scroll
-            
-            if (delta < 0) {
-                // Scrolling up - increase repulsion (more negative)
-                currentForceStrength = currentForceStrength - step;
-            } else {
-                // Scrolling down - decrease repulsion (less negative)
-                currentForceStrength = currentForceStrength + step;
-            }
-            
-            chargeForce.strength(currentForceStrength);
-            simulation.alpha(0.3).restart(); // Restart simulation with new force
-        }
-    }, { passive: false });
+            return 200 + (d._xWeight * 1500);
+        }).strength(0.3));
     
     // Helper function to get link start and end points for gradient
     const getLinkGradientCoords = (d) => {
@@ -394,7 +427,7 @@ function renderGraph(data) {
         .attr("class", "class-group")
         .call(d3.drag()
             .on("start", function(event, d) {
-                if (!event.active) simulation.alphaTarget(0.3).restart();
+                if (!event.active) currentSimulation.alphaTarget(0.3).restart();
                 d.fx = d.x;
                 d.fy = d.y;
             })
@@ -403,7 +436,7 @@ function renderGraph(data) {
                 d.fy = event.y;
             })
             .on("end", function(event, d) {
-                if (!event.active) simulation.alphaTarget(0);
+                if (!event.active) currentSimulation.alphaTarget(0);
                 d.fx = null;
                 d.fy = null;
             }));
@@ -420,9 +453,10 @@ function renderGraph(data) {
             .attr("y", class_box_attrs.y)
             .attr("height", class_box_attrs.height)
             .attr("rx", class_box_attrs.rx)
-            .attr("fill", class_box_attrs.fill)
-            .attr("stroke", class_box_attrs.stroke)
-            .attr("stroke-width", class_box_attrs["stroke-width"]);
+            .attr("fill", d => d.was_used !== false ? class_box_attrs.fill : "rgba(149, 165, 166, 0.1)") // Gray if unused
+            .attr("stroke", d => d.was_used !== false ? class_box_attrs.stroke : "#95a5a6") // Gray border if unused
+            .attr("stroke-width", class_box_attrs["stroke-width"])
+            .attr("stroke-dasharray", d => d.was_used === false ? "5,5" : null); // Dashed border if unused
         
         classGroup.append("text")
             .attr("class", "class-name")
@@ -446,7 +480,12 @@ function renderGraph(data) {
                     .attr("width", d => Math.max(d.name.length * 7 + 10, 80))
                     .attr("x", d => -Math.max(d.name.length * 7 + 10, 80) / 2)
                     .attr("y", 30 + (i * 40))
-                    .attrs(method_box_attrs);
+                    .attr("height", method_box_attrs.height)
+                    .attr("rx", method_box_attrs.rx)
+                    .attr("fill", d => d.was_called !== false ? method_box_attrs.fill : "rgba(149, 165, 166, 0.15)") // Gray if unused
+                    .attr("stroke", d => d.was_called !== false ? method_box_attrs.stroke : "#95a5a6") // Gray border if unused
+                    .attr("stroke-width", method_box_attrs["stroke-width"])
+                    .attr("stroke-dasharray", d => d.was_called === false ? "3,3" : null); // Dashed border if unused
                 
                 methodBox.append("text")
                     .attrs(method_text_attrs)
@@ -458,7 +497,7 @@ function renderGraph(data) {
     });
     
     // Update positions on simulation tick
-    simulation.on("tick", () => {
+    currentSimulation.on("tick", () => {
         // Constrain nodes within larger simulation bounds (extends past visible SVG area)
         const margin = 50;
         const simWidth = 2000;  // Larger than SVG width (1400)
@@ -472,7 +511,7 @@ function renderGraph(data) {
         });
         
         // Update center force to match simulation bounds
-        simulation.force("center", d3.forceCenter(centerX, centerY).strength(0.2));
+        currentSimulation.force("center", d3.forceCenter(centerX, centerY).strength(0.2));
         
         // Update exit indices based on current positions
         updateExitIndices();
@@ -498,7 +537,7 @@ function renderGraph(data) {
     });
     
     // Zoom to fit when simulation ends
-    simulation.on("end", () => {
+    currentSimulation.on("end", () => {
         const bounds = container.node().getBBox();
         const fullWidth = +svg.attr("width");
         const fullHeight = +svg.attr("height");
@@ -513,14 +552,18 @@ function renderGraph(data) {
             
             svg.transition()
                 .duration(750)
-                .call(zoom.transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
+                .call(currentZoom.transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
         }
     });
-    
+}
+
+function setupFilters(initialForceStrength) {
     // Filter functionality
     let filterRegex = null;
+    let showUnused = true;
+    let currentForceStrength = initialForceStrength;
     
-    function applyFilter() {
+    function applyFilters() {
         const filterInput = document.getElementById('class-filter');
         const filterValue = filterInput.value.trim();
         
@@ -536,6 +579,15 @@ function renderGraph(data) {
         
         filterInput.style.borderColor = '';
         
+        // Get show unused toggle state
+        const showUnusedToggle = document.getElementById('show-unused-toggle');
+        showUnused = showUnusedToggle.checked;
+        
+        if (!originalData) return;
+        
+        // Create filtered copy of data
+        const filteredData = JSON.parse(JSON.stringify(originalData));
+        
         // Helper function to check if a class name matches the filter
         const isFiltered = (className) => {
             if (!filterRegex || !className) return false;
@@ -550,38 +602,65 @@ function renderGraph(data) {
         };
         
         // Filter class nodes
-        classNode.style("display", d => {
-            return isFiltered(d.id) ? "none" : "block";
-        });
+        const filteredClassNodes = filteredData.nodes
+            .filter(d => d.type === 'class')
+            .filter(d => {
+                if (isFiltered(d.id)) return false;
+                if (!showUnused && d.was_used === false) return false;
+                return true;
+            });
         
-        // Filter method nodes (inside class groups) - hide entire method group if class is filtered
-        classNode.selectAll(".methods").style("display", function() {
-            const classId = d3.select(this.parentElement).datum()?.id;
-            return isFiltered(classId) ? "none" : "block";
-        });
+        const filteredClassIds = new Set(filteredClassNodes.map(d => d.id));
         
-        // Filter call links - check both source and target classes
-        callsLink.style("display", d => {
-            // Links have source and target as method IDs (format: "ClassName::methodName")
-            const sourceId = typeof d.source === 'string' ? d.source : (d.source?.id || d.source);
-            const targetId = typeof d.target === 'string' ? d.target : (d.target?.id || d.target);
-            
-            const sourceClass = getClassFromMethodId(sourceId);
-            const targetClass = getClassFromMethodId(targetId);
-            
-            // Hide link if either source or target class is filtered
-            return (isFiltered(sourceClass) || isFiltered(targetClass)) ? "none" : "block";
-        });
+        // Filter method nodes (only keep methods from visible classes)
+        let filteredMethodNodes = filteredData.nodes
+            .filter(d => d.type === 'method')
+            .filter(d => {
+                const className = getClassFromMethodId(d.id);
+                if (!className || !filteredClassIds.has(className)) return false;
+                
+                // If class is visible, check if we should show unused methods
+                if (!showUnused && d.was_called === false) return false;
+                return true;
+            });
+        
+        // Filter contains links (only keep links for visible classes/methods)
+        const filteredContainsLinks = filteredData.links
+            .filter(d => d.type === 'contains')
+            .filter(d => filteredClassIds.has(d.source) && filteredMethodNodes.some(m => m.id === d.target));
+        
+        // Filter calls links (only keep links between visible methods)
+        const filteredMethodIds = new Set(filteredMethodNodes.map(d => d.id));
+        const filteredCallsLinks = filteredData.links
+            .filter(d => d.type === 'calls')
+            .filter(d => {
+                const sourceId = typeof d.source === 'string' ? d.source : (d.source?.id || d.source);
+                const targetId = typeof d.target === 'string' ? d.target : (d.target?.id || d.target);
+                return filteredMethodIds.has(sourceId) && filteredMethodIds.has(targetId);
+            });
+        
+        // Rebuild filtered data structure
+        const rebuildData = {
+            nodes: [...filteredClassNodes, ...filteredMethodNodes],
+            links: [...filteredContainsLinks, ...filteredCallsLinks]
+        };
+        
+        // Rebuild graph with filtered data
+        rebuildGraphWithFilters(rebuildData, currentContainer, currentSvg, currentForceStrength);
     }
     
     // Add event listener to filter input
     const filterInput = document.getElementById('class-filter');
-    filterInput.addEventListener('input', applyFilter);
+    filterInput.addEventListener('input', applyFilters);
     filterInput.addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
-            applyFilter();
+            applyFilters();
         }
     });
+    
+    // Add event listener to show unused toggle
+    const showUnusedToggle = document.getElementById('show-unused-toggle');
+    showUnusedToggle.addEventListener('change', applyFilters);
 }
 
 // Load graph on page load

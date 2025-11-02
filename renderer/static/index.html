@@ -13,8 +13,16 @@
         <p class="subtitle">Runtime call traces from Domain-Driven Design project</p>
         
         <div class="filter-controls">
-            <label for="class-filter">Filter by class name (regex):</label>
-            <input type="text" id="class-filter" placeholder="e.g., Repository|Service" />
+            <div class="filter-section">
+                <label for="class-filter">Filter by class name (regex):</label>
+                <input type="text" id="class-filter" placeholder="e.g., Repository|Service" />
+            </div>
+            <div class="filter-section">
+                <label for="show-unused-toggle">
+                    <input type="checkbox" id="show-unused-toggle" checked />
+                    Show unused classes and methods
+                </label>
+            </div>
         </div>
         
         <div id="graph">

@@ -25,8 +25,8 @@ def main():
     
     print(f"Captured {len(events)} trace events")
     
-    # Generate D3 data
-    graph_data = generate_d3_data(events)
+    # Generate D3 data (including static analysis for unused code detection)
+    graph_data = generate_d3_data(events, project_root=project_root, track_module_calls=True)
     
     # Ensure output directory exists
     output_file.parent.mkdir(parents=True, exist_ok=True)

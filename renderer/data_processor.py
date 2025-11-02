@@ -2,9 +2,15 @@
 
 from collections import defaultdict
 from pathlib import Path
+import sys
+
+# Add parent directory to path for static analyzer import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from static_analyzer import find_classes_and_methods
 
 
-def generate_d3_data(tracer_events, track_module_calls=False):
+def generate_d3_data(tracer_events, track_module_calls=False, project_root=None):
     """
     Convert tracer events to D3.js network graph format.
     
@@ -12,12 +18,27 @@ def generate_d3_data(tracer_events, track_module_calls=False):
         tracer_events: List of trace events from CallTracer
         track_module_calls: If True, include calls from module-level code (e.g., __init__ from scripts).
                           Default False to avoid showing incorrect module-to-class links.
+        project_root: Optional root directory for static analysis to find all classes/methods.
+                     If provided, includes classes and methods that exist but were never called.
     """
-    # Build class -> methods mapping
+    # Build class -> methods mapping from trace events
     classes_data = defaultdict(set)
+    called_methods = set()  # Track which methods were actually called
+    
     for event in tracer_events:
         if event.get('class'):
             classes_data[event['class']].add(event['function'])
+            called_methods.add((event['class'], event['function']))
+    
+    # If project_root is provided, also find all classes and methods via static analysis
+    if project_root:
+        static_classes = find_classes_and_methods(project_root)
+        
+        # Merge static analysis with trace data
+        for class_name, methods in static_classes.items():
+            if class_name not in classes_data:
+                classes_data[class_name] = set()
+            classes_data[class_name].update(methods)
     
     # Build call relationships
     calls = []
@@ -74,22 +95,30 @@ def generate_d3_data(tracer_events, track_module_calls=False):
     
     for class_name in sorted(classes_data.keys()):
         methods = sorted(classes_data[class_name])
-        # Add class node
+        
+        # Check if class was used (has any called methods)
+        class_was_used = any((class_name, method) in called_methods for method in methods)
+        
+        # Add class node with usage indicator
         nodes.append({
             'id': class_name,
             'name': class_name,
             'type': 'class',
-            'method_count': len(methods)
+            'method_count': len(methods),
+            'was_used': class_was_used
         })
         
-        # Add method nodes
+        # Add method nodes with usage indicator
         for method in methods:
             method_id = f"{class_name}::{method}"
+            method_was_called = (class_name, method) in called_methods
+            
             method_nodes.append({
                 'id': method_id,
                 'name': method,
                 'type': 'method',
-                'class': class_name
+                'class': class_name,
+                'was_called': method_was_called
             })
     
     # Combine all nodes
