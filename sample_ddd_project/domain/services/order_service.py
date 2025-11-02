@@ -5,10 +5,11 @@ from domain.entities.user import User
 class OrderService:
     """Domain service for handling order-related business logic."""
     
-    def __init__(self, order_repository, product_repository, inventory_service):
+    def __init__(self, order_repository, product_repository, inventory_service, email_service=None):
         self.order_repository = order_repository
         self.product_repository = product_repository
         self.inventory_service = inventory_service
+        self.email_service = email_service
     
     def create_order(self, user, order_items):
         """Create a new order for a user."""
@@ -18,6 +19,14 @@ class OrderService:
             order.add_item(item['product'], item['quantity'])
         
         self.order_repository.save(order)
+        
+        # Send order confirmation email if email service is available
+        if self.email_service:
+            order_total = sum(item['product'].price * item['quantity'] for item in order_items)
+            self.email_service.send_order_confirmation(user.email, order.order_id, order_total)
+            # Also notify admin
+            self.email_service.send_order_notification("admin@example.com", order.order_id)
+        
         return order
     
     def process_order(self, order):
