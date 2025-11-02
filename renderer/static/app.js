@@ -377,7 +377,10 @@ function renderGraph(data) {
             const endY = targetY;
             const loopSize = 40
             
-            return `M ${startX},${startY} C ${startX+loopSize},${startY} ${endX+loopSize},${endY} ${endX},${endY}`;
+            return `
+                M ${startX},${startY} 
+                C ${startX+loopSize},${startY} ${endX+loopSize},${endY} ${endX},${endY}
+                `;
         } else {
             // Different classes: horizontal exit, simple curve, horizontal entry
             const sourceRightX = sourceX + sourceMethodWidth / 2;
