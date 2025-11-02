@@ -1,16 +1,12 @@
 """FastAPI backend for call path visualization."""
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+import json
+import subprocess
 import sys
-
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from trace_runner import run_traced_script
-from data_processor import generate_d3_data
 
 app = FastAPI(title="Call Path Visualizer")
 
@@ -22,17 +18,49 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 @app.get("/api/trace")
 def get_trace_data():
-    """Run tracing on DDD project and return graph data."""
-    project_root = str(Path(__file__).parent.parent / 'sample_ddd_project')
-    script_path = str(Path(__file__).parent.parent / 'run_ddd_scenario.py')
+    """Generate and return trace data."""
+    trace_data_file = Path(__file__).parent.parent / "renderer" / "static" / "trace_data.json"
     
-    # Run script with tracing (tracing starts before script loads and stops after execution)
-    events = run_traced_script(script_path, project_root=project_root)
+    # Run generate_trace_data.py to create/update the trace data
+    try:
+        script_path = Path(__file__).parent.parent / "generate_trace_data.py"
+        result = subprocess.run(
+            [sys.executable, str(script_path)],
+            capture_output=True,
+            text=True,
+            cwd=str(Path(__file__).parent.parent)
+        )
+        
+        if result.returncode != 0:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Failed to generate trace data",
+                    "message": result.stderr or result.stdout
+                }
+            )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "Failed to run trace generation",
+                "message": str(e)
+            }
+        )
     
-    # Generate D3 data
-    graph_data = generate_d3_data(events)
-    
-    return graph_data
+    # Load and return the generated trace data
+    try:
+        with open(trace_data_file, 'r') as f:
+            graph_data = json.load(f)
+        return graph_data
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "Failed to load trace data",
+                "message": str(e)
+            }
+        )
 
 
 @app.get("/", response_class=HTMLResponse)
