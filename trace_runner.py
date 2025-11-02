@@ -9,11 +9,12 @@ from typing import List, Dict, Any, Optional
 class CallTracer:
     """Tracer that records all function calls during execution."""
     
-    def __init__(self, entry_script: Optional[str] = None):
+    def __init__(self, entry_script: Optional[str] = None, project_root: Optional[str] = None):
         self.call_stack = []
         self.call_events = []
         self.depth = 0
         self.entry_script = entry_script  # Track the main script being executed
+        self.project_root = project_root  # Track project root directory for filtering
     
     def _should_skip_file(self, filename: str) -> bool:
         """Check if a file should be skipped (standard library, internal, etc.)."""
@@ -26,6 +27,19 @@ class CallTracer:
         # Skip trace_runner module
         if 'trace_runner' in filename:
             return True
+        
+        # If project_root is set, only include files within the project directory
+        if self.project_root:
+            from pathlib import Path
+            try:
+                file_path = Path(filename).resolve()
+                project_path = Path(self.project_root).resolve()
+                # Check if file is within project directory
+                if not str(file_path).startswith(str(project_path)):
+                    return True
+            except (ValueError, OSError):
+                # If path resolution fails, skip it
+                pass
         
         # Skip system directories (macOS)
         if filename.startswith('/System') or filename.startswith('/usr'):
@@ -159,7 +173,7 @@ def run_traced_script(script_path: str, project_root: Optional[str] = None) -> L
         sys.path.insert(0, str(Path(project_root).absolute()))
     
     # Create and start tracer BEFORE any imports
-    tracer = CallTracer(entry_script=str(script_path))
+    tracer = CallTracer(entry_script=str(script_path), project_root=project_root)
     tracer.start_tracing()
     
     try:
@@ -239,7 +253,7 @@ def run_traced_code(code_string: str, project_root: Optional[str] = None) -> Lis
         sys.path.insert(0, str(Path(project_root).absolute()))
     
     # Create and start tracer BEFORE execution
-    tracer = CallTracer(entry_script=None)  # Code string execution doesn't have a specific entry script
+    tracer = CallTracer(entry_script=None, project_root=project_root)  # Code string execution doesn't have a specific entry script
     tracer.start_tracing()
     
     try:
