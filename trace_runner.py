@@ -15,9 +15,30 @@ class CallTracer:
         self.depth = 0
         self.entry_script = entry_script  # Track the main script being executed
         self.project_root = project_root  # Track project root directory for filtering
+        self.has_recorded_external_call = False  # Track if we've already recorded a call outside project
     
-    def _should_skip_file(self, filename: str) -> bool:
-        """Check if a file should be skipped (standard library, internal, etc.)."""
+    def _is_in_project(self, filename: str) -> bool:
+        """Check if a file is within the project directory."""
+        if not self.project_root:
+            return True  # If no project root, consider everything "in project"
+        
+        from pathlib import Path
+        try:
+            file_path = Path(filename).resolve()
+            project_path = Path(self.project_root).resolve()
+            # Check if file is within project directory
+            return str(file_path).startswith(str(project_path))
+        except (ValueError, OSError):
+            # If path resolution fails, assume not in project
+            return False
+    
+    def _should_skip_file(self, filename: str, is_caller_in_project: bool = True) -> bool:
+        """Check if a file should be skipped (standard library, internal, etc.).
+        
+        Args:
+            filename: The filename to check
+            is_caller_in_project: Whether the caller is in the project directory
+        """
         import sys
         
         # Skip generated code, frozen modules
@@ -28,20 +49,27 @@ class CallTracer:
         if 'trace_runner' in filename:
             return True
         
-        # If project_root is set, only include files within the project directory
-        if self.project_root:
-            from pathlib import Path
-            try:
-                file_path = Path(filename).resolve()
-                project_path = Path(self.project_root).resolve()
-                # Check if file is within project directory
-                if not str(file_path).startswith(str(project_path)):
-                    return True
-            except (ValueError, OSError):
-                # If path resolution fails, skip it
-                pass
+        # Check if this file is in the project
+        file_is_in_project = self._is_in_project(filename)
         
-        # Skip system directories (macOS)
+        # If project_root is set:
+        # - Always include files in project
+        # - Include first external call (if caller is in project and we haven't recorded external yet)
+        # - Skip subsequent external calls
+        if self.project_root:
+            if file_is_in_project:
+                return False  # Always include project files
+            else:
+                # This is an external file
+                if is_caller_in_project and not self.has_recorded_external_call:
+                    # This is the first external call from project - include it
+                    self.has_recorded_external_call = True
+                    return False
+                else:
+                    # Already recorded an external call, or caller is external - skip
+                    return True
+        
+        # Skip system directories (macOS) - but only if we don't have project filtering
         if filename.startswith('/System') or filename.startswith('/usr'):
             return True
         
@@ -101,8 +129,14 @@ class CallTracer:
             function_name = frame.f_code.co_name
             line_number = frame.f_lineno
             
-            # Skip internal/standard library files
-            if self._should_skip_file(filename):
+            # Determine if the caller is in the project
+            is_caller_in_project = True
+            if self.call_stack:
+                caller_filename = self.call_stack[-1].get('filename', '')
+                is_caller_in_project = self._is_in_project(caller_filename)
+            
+            # Skip internal/standard library files (with context about caller)
+            if self._should_skip_file(filename, is_caller_in_project=is_caller_in_project):
                 return self.trace_calls
             
             # Try to determine the class name
