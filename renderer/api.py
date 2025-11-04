@@ -68,6 +68,46 @@ def get_trace_data():
         )
 
 
+@app.post("/clear-trace")
+def clear_trace_data():
+    """Clear the trace data file."""
+    trace_data_file = Path(__file__).parent / "static" / "trace_data.json"
+
+    try:
+        if trace_data_file.exists():
+            # Clear the file by writing empty data structure
+            empty_data = {
+                "nodes": [],
+                "links": []
+            }
+            with open(trace_data_file, 'w') as f:
+                json.dump(empty_data, f, indent=2)
+
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "message": "Trace data cleared successfully",
+                    "status": "success"
+                }
+            )
+        else:
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "message": "No trace data file found to clear",
+                    "status": "success"
+                }
+            )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "Failed to clear trace data",
+                "message": str(e)
+            }
+        )
+
+
 @app.get("/", response_class=HTMLResponse)
 def index():
     """Serve the main visualization page."""

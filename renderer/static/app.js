@@ -975,7 +975,34 @@ function setupFilters(initialForceStrength) {
     // Add event listener to show unused toggle
     const showUnusedToggle = document.getElementById('show-unused-toggle');
     showUnusedToggle.addEventListener('change', applyFilters);
-    
+
+    // Add event listener to clear trace data button
+    const clearTraceBtn = document.getElementById('clear-trace-btn');
+    clearTraceBtn.addEventListener('click', async function() {
+        if (confirm('Are you sure you want to clear all trace data? This action cannot be undone.')) {
+            try {
+                const response = await fetch('/clear-trace', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    // Clear the current visualization
+                    const graphContainer = document.getElementById('graph');
+                    graphContainer.innerHTML = '<div class="loading">Trace data cleared. Run generate_trace_data.py to create new trace data.</div>';
+                    alert('Trace data cleared successfully!');
+                } else {
+                    alert('Failed to clear trace data. Please try again.');
+                }
+            } catch (error) {
+                console.error('Error clearing trace data:', error);
+                alert('Error clearing trace data. Please try again.');
+            }
+        }
+    });
+
     // Apply initial filter state on page load
     applyFilters();
 }
