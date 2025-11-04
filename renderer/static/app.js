@@ -314,9 +314,15 @@ let currentSvg = null;
 let currentZoom = null;
 
 function renderGraph(data) {
+    // Clear any existing position save interval
+    if (window.positionSaveInterval) {
+        clearInterval(window.positionSaveInterval);
+        window.positionSaveInterval = null;
+    }
+
     // Store original data for filtering
     originalData = JSON.parse(JSON.stringify(data)); // Deep copy
-    
+
     // Clear loading message
     document.getElementById('graph').innerHTML = '';
     
@@ -554,6 +560,9 @@ function rebuildGraphWithFilters(data, container, svg, forceStrength) {
     // Create force for node repulsion (will be adjusted by slider)
     let chargeForce = d3.forceManyBody().strength(forceStrength);
     
+    // Restore saved node positions before creating simulation
+    restoreNodePositions(classNodes);
+
     // Create simulation with only class nodes
     currentSimulation = d3.forceSimulation(classNodes)
         .force("charge", chargeForce)
@@ -716,6 +725,8 @@ function rebuildGraphWithFilters(data, container, svg, forceStrength) {
                 if (!event.active) currentSimulation.alphaTarget(0);
                 d.fx = null;
                 d.fy = null;
+                // Save positions immediately after dragging
+                saveNodePositions(classNodes);
             }));
     
     // Class name box - dynamic width based on text
@@ -859,16 +870,32 @@ function rebuildGraphWithFilters(data, container, svg, forceStrength) {
         const height = bounds.height;
         const midX = bounds.x + width / 2;
         const midY = bounds.y + height / 2;
-        
+
         if (width && height) {
             const scale = Math.min(fullWidth / width, fullHeight / height) * 0.9; // 90% scale for padding
             const translate = [fullWidth / 2 - scale * midX, fullHeight / 2 - scale * midY];
-            
+
             svg.transition()
                 .duration(750)
                 .call(currentZoom.transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
         }
+
+        // After simulation ends, allow nodes to be dragged and save positions periodically
+        setTimeout(() => {
+            classNodes.forEach(node => {
+                node.fx = null; // Unfix positions to allow dragging
+                node.fy = null;
+            });
+        }, 1000); // Wait 1 second after zoom animation
     });
+
+    // Set up periodic saving of node positions every 10 seconds
+    if (window.positionSaveInterval) {
+        clearInterval(window.positionSaveInterval);
+    }
+    window.positionSaveInterval = setInterval(() => {
+        saveNodePositions(classNodes);
+    }, 10000); // Save every 10 seconds
 }
 
 function setupFilters(initialForceStrength) {
@@ -1005,6 +1032,37 @@ function setupFilters(initialForceStrength) {
 
     // Apply initial filter state on page load
     applyFilters();
+}
+
+// Node position persistence functions
+function saveNodePositions(nodes) {
+    const positions = {};
+    nodes.forEach(node => {
+        if (node.x !== undefined && node.y !== undefined) {
+            positions[node.id] = {
+                x: node.x,
+                y: node.y
+            };
+        }
+    });
+    localStorage.setItem('callpath_node_positions', JSON.stringify(positions));
+}
+
+function loadNodePositions() {
+    const saved = localStorage.getItem('callpath_node_positions');
+    return saved ? JSON.parse(saved) : {};
+}
+
+function restoreNodePositions(nodes) {
+    const savedPositions = loadNodePositions();
+    nodes.forEach(node => {
+        if (savedPositions[node.id]) {
+            node.x = savedPositions[node.id].x;
+            node.y = savedPositions[node.id].y;
+            node.fx = node.x; // Fix position initially
+            node.fy = node.y;
+        }
+    });
 }
 
 // Load graph on page load
