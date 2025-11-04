@@ -83,6 +83,7 @@ def generate_d3_data(tracer_events, track_module_calls=False, project_root=None)
                     # Skip creating this link to avoid incorrect attribution
                     continue
             
+            
             # Include all calls, including same-class method calls and module-to-class calls
             calls.append((from_class, from_method, to_class, to_method))
     

@@ -58,11 +58,11 @@ function highlightPaths(sourceId, targetId, callsLink, classNode, data, methodNo
     // Find all paths leading TO the source (source paths)
     const sourcePaths = new Set();
     const visitedNodes = new Set();
-    
+
     function findSourcePaths(nodeId) {
         if (visitedNodes.has(nodeId)) return;
         visitedNodes.add(nodeId);
-        
+
         // Find all links that have this node as target
         callsLink.each(function(d) {
             const linkTargetId = typeof d.target === 'string' ? d.target : (d.target?.id || d.target);
@@ -73,15 +73,15 @@ function highlightPaths(sourceId, targetId, callsLink, classNode, data, methodNo
             }
         });
     }
-    
+
     // Find all paths leading FROM the target (target paths)
     const targetPaths = new Set();
     const visitedTargetNodes = new Set();
-    
+
     function findTargetPaths(nodeId) {
         if (visitedTargetNodes.has(nodeId)) return;
         visitedTargetNodes.add(nodeId);
-        
+
         // Find all links that have this node as source
         callsLink.each(function(d) {
             const linkSourceId = typeof d.source === 'string' ? d.source : (d.source?.id || d.source);
@@ -92,16 +92,16 @@ function highlightPaths(sourceId, targetId, callsLink, classNode, data, methodNo
             }
         });
     }
-    
+
     findSourcePaths(sourceId);
     findTargetPaths(targetId);
-    
+
     // Highlight source paths (leading TO)
     callsLink.each(function(d) {
         const linkSourceId = typeof d.source === 'string' ? d.source : (d.source?.id || d.source);
         const linkTargetId = typeof d.target === 'string' ? d.target : (d.target?.id || d.target);
         const linkKey = linkSourceId + '::' + linkTargetId;
-        
+
         if (sourcePaths.has(linkKey)) {
             d3.select(this).classed("source-path", true);
         }
@@ -109,7 +109,7 @@ function highlightPaths(sourceId, targetId, callsLink, classNode, data, methodNo
             d3.select(this).classed("target-path", true);
         }
     });
-    
+
     // Highlight source and target nodes
     const allHighlightedNodes = new Set();
     sourcePaths.forEach(pathKey => {
@@ -122,13 +122,13 @@ function highlightPaths(sourceId, targetId, callsLink, classNode, data, methodNo
     });
     allHighlightedNodes.add(sourceId);
     allHighlightedNodes.add(targetId);
-    
+
     // Highlight class and method nodes
     classNode.each(function(d) {
         const classGroup = d3.select(this);
         const methods = classMethodsMap[d.id] || [];
         let hasHighlightedMethod = false;
-        
+
         methods.forEach(methodId => {
             if (allHighlightedNodes.has(methodId)) {
                 hasHighlightedMethod = true;
@@ -136,7 +136,66 @@ function highlightPaths(sourceId, targetId, callsLink, classNode, data, methodNo
                     .classed("highlighted-method", true);
             }
         });
-        
+
+        if (hasHighlightedMethod || allHighlightedNodes.has(d.id)) {
+            classGroup.classed("highlighted-class", true);
+        }
+    });
+}
+
+// New function for highlighting all paths from a starting node (for head nodes)
+function highlightAllPathsFromNode(startNodeId, callsLink, classNode, data, methodNodes, classMethodsMap) {
+    const allPaths = new Set();
+    const allHighlightedNodes = new Set();
+    const visitedNodes = new Set();
+
+    function traverseFromNode(nodeId) {
+        if (visitedNodes.has(nodeId)) return;
+        visitedNodes.add(nodeId);
+        allHighlightedNodes.add(nodeId);
+
+        // Find all links that have this node as source
+        callsLink.each(function(d) {
+            const linkSourceId = typeof d.source === 'string' ? d.source : (d.source?.id || d.source);
+            if (linkSourceId === nodeId) {
+                const linkTargetId = typeof d.target === 'string' ? d.target : (d.target?.id || d.target);
+                const linkKey = linkSourceId + '::' + linkTargetId;
+                allPaths.add(linkKey);
+                allHighlightedNodes.add(linkTargetId);
+                // Recursively traverse from the target
+                traverseFromNode(linkTargetId);
+            }
+        });
+    }
+
+    // Start traversal from the given node
+    traverseFromNode(startNodeId);
+
+    // Highlight all found paths
+    callsLink.each(function(d) {
+        const linkSourceId = typeof d.source === 'string' ? d.source : (d.source?.id || d.source);
+        const linkTargetId = typeof d.target === 'string' ? d.target : (d.target?.id || d.target);
+        const linkKey = linkSourceId + '::' + linkTargetId;
+
+        if (allPaths.has(linkKey)) {
+            d3.select(this).classed("target-path", true);
+        }
+    });
+
+    // Highlight all nodes in the traversal
+    classNode.each(function(d) {
+        const classGroup = d3.select(this);
+        const methods = classMethodsMap[d.id] || [];
+        let hasHighlightedMethod = false;
+
+        methods.forEach(methodId => {
+            if (allHighlightedNodes.has(methodId)) {
+                hasHighlightedMethod = true;
+                classGroup.select(`[data-method-id="${methodId}"]`)
+                    .classed("highlighted-method", true);
+            }
+        });
+
         if (hasHighlightedMethod || allHighlightedNodes.has(d.id)) {
             classGroup.classed("highlighted-class", true);
         }
@@ -613,13 +672,13 @@ function rebuildGraphWithFilters(data, container, svg, forceStrength) {
             // Get source and target method IDs
             const sourceId = typeof d.source === 'string' ? d.source : (d.source?.id || d.source);
             const targetId = typeof d.target === 'string' ? d.target : (d.target?.id || d.target);
-            
+
             // Highlight this link
             d3.select(this).attr("class", "link hover");
-            
-            // Find and highlight all source paths (paths leading TO the source)
-            highlightPaths(sourceId, targetId, callsLink, classNode, data, methodNodes, classMethodsMap);
-            
+
+            // For links, highlight all paths from the source (comprehensive traversal)
+            highlightAllPathsFromNode(sourceId, callsLink, classNode, data, methodNodes, classMethodsMap);
+
             // Show tooltip
             const srcMethod = d.source.name || data.nodes.find(n => n.id === sourceId)?.name;
             const tgtMethod = d.target.name || data.nodes.find(n => n.id === targetId)?.name;
@@ -719,16 +778,9 @@ function rebuildGraphWithFilters(data, container, svg, forceStrength) {
                 // Add hover handlers to both the group and the rect
                 const hoverHandler = function(event, d) {
                     event.stopPropagation(); // Prevent class node hover from firing
-                    
-                    // Find all links where this method is source or target
-                    callsLink.each(function(linkD) {
-                        const linkSourceId = typeof linkD.source === 'string' ? linkD.source : (linkD.source?.id || linkD.source);
-                        const linkTargetId = typeof linkD.target === 'string' ? linkD.target : (linkD.target?.id || linkD.target);
-                        
-                        if (linkSourceId === d.id || linkTargetId === d.id) {
-                            highlightPaths(linkSourceId, linkTargetId, callsLink, classNode, data, methodNodes, classMethodsMap);
-                        }
-                    });
+
+                    // Use the new comprehensive traversal function to highlight all paths from this method
+                    highlightAllPathsFromNode(d.id, callsLink, classNode, data, methodNodes, classMethodsMap);
                 };
                 
                 const mouseoutHandler = function(event, d) {
@@ -748,18 +800,10 @@ function rebuildGraphWithFilters(data, container, svg, forceStrength) {
     classNode.on("mouseover", function(event, d) {
         // Find all methods in this class
         const methods = classMethodsMap[d.id] || [];
-        
-        // For each method, highlight its paths
+
+        // For each method, highlight all paths from that method using comprehensive traversal
         methods.forEach(methodId => {
-            // Find all links where this method is source or target
-            callsLink.each(function(linkD) {
-                const linkSourceId = typeof linkD.source === 'string' ? linkD.source : (linkD.source?.id || linkD.source);
-                const linkTargetId = typeof linkD.target === 'string' ? linkD.target : (linkD.target?.id || linkD.target);
-                
-                if (linkSourceId === methodId || linkTargetId === methodId) {
-                    highlightPaths(linkSourceId, linkTargetId, callsLink, classNode, data, methodNodes, classMethodsMap);
-                }
-            });
+            highlightAllPathsFromNode(methodId, callsLink, classNode, data, methodNodes, classMethodsMap);
         });
     })
     .on("mouseout", function(d) {

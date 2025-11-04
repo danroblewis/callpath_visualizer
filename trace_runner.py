@@ -8,13 +8,14 @@ from typing import List, Dict, Any, Optional
 
 class CallTracer:
     """Tracer that records all function calls during execution."""
-    
+
     def __init__(self, entry_script: Optional[str] = None, project_root: Optional[str] = None):
         self.call_stack = []
         self.call_events = []
         self.depth = 0
         self.entry_script = entry_script  # Track the main script being executed
         self.project_root = project_root  # Track project root directory for filtering
+        self.is_tracing = False
         self.has_recorded_external_call = False  # Track if we've already recorded a call outside project
     
     def _is_in_project(self, filename: str) -> bool:
@@ -22,7 +23,6 @@ class CallTracer:
         if not self.project_root:
             return True  # If no project root, consider everything "in project"
         
-        from pathlib import Path
         try:
             file_path = Path(filename).resolve()
             project_path = Path(self.project_root).resolve()
@@ -124,65 +124,112 @@ class CallTracer:
     def trace_calls(self, frame, event, arg):
         """Callback for sys.settrace - called on each function call."""
         if event == 'call':
-            # Record this call
+            # Get basic info
             filename = frame.f_code.co_filename
             function_name = frame.f_code.co_name
             line_number = frame.f_lineno
-            
+
             # Determine if the caller is in the project
             is_caller_in_project = True
             if self.call_stack:
                 caller_filename = self.call_stack[-1].get('filename', '')
                 is_caller_in_project = self._is_in_project(caller_filename)
-            
-            # Skip internal/standard library files (with context about caller)
-            if self._should_skip_file(filename, is_caller_in_project=is_caller_in_project):
-                return self.trace_calls
-            
+
+            # Check if we should skip this file
+            should_skip = self._should_skip_file(filename, is_caller_in_project=is_caller_in_project)
+
             # Try to determine the class name
             class_name = None
             if 'self' in frame.f_locals:
                 self_obj = frame.f_locals['self']
                 class_name = self_obj.__class__.__name__
-                
+
                 # Skip internal/stdlib classes
                 if self._should_skip_class(class_name, filename):
-                    return self.trace_calls
-            
+                    should_skip = True
+
+            # Create call info for stack management (always, even if skipped)
             call_info = {
                 'filename': filename,
                 'function': function_name,
                 'line': line_number,
                 'class': class_name,
                 'caller': None,
-                'depth': self.depth,  # Track actual call depth
-                'entry_script': self.entry_script  # Track which script initiated execution
+                'depth': self.depth,
+                'entry_script': self.entry_script,
+                'skipped': should_skip  # Mark if this call was skipped
             }
-            
-            # Set caller if we have a call stack
+
+            # Set caller if we have a call stack (find last non-skipped entry)
             if self.call_stack:
-                call_info['caller'] = self.call_stack[-1]
-            
-            self.call_events.append(call_info)
+                # Find the last non-skipped entry as the caller
+                for stack_entry in reversed(self.call_stack):
+                    if not stack_entry.get('skipped', False):
+                        call_info['caller'] = stack_entry
+                        break
+
+            # Always add to call stack for proper stack management
             self.call_stack.append(call_info)
             self.depth += 1
-        
+
+            # Only add to events if not skipped
+            if not should_skip:
+                # Remove the 'skipped' flag from the event record
+                event_info = call_info.copy()
+                del event_info['skipped']
+                self.call_events.append(event_info)
+
         elif event == 'return':
-            # Pop from call stack
+            # Always pop from call stack (to match the push in 'call')
             if self.call_stack:
                 self.call_stack.pop()
                 self.depth -= 1
-        
+
         return self.trace_calls
     
     def start_tracing(self):
         """Enable tracing."""
         sys.settrace(self.trace_calls)
+        self.is_tracing = True
     
     def stop_tracing(self):
         """Disable tracing and return events."""
         sys.settrace(None)
+        self.is_tracing = False
         return self.call_events
+
+    def begin(self):
+        """Start tracing - call this after imports are complete."""
+        if not self.is_tracing:
+            self.start_tracing()
+
+    def end(self, output_file: Optional[str] = None):
+        """Stop tracing and generate trace data file."""
+        if self.is_tracing:
+            events = self.stop_tracing()
+
+            # Import here to avoid circular imports
+            from renderer.data_processor import generate_d3_data
+            import json
+            from pathlib import Path
+
+            # Generate D3 data
+            graph_data = generate_d3_data(events, project_root=self.project_root, track_module_calls=True)
+
+            # Default output file
+            if output_file is None:
+                output_file = str(Path(__file__).parent / 'renderer' / 'static' / 'trace_data.json')
+
+            # Ensure output directory exists
+            Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+
+            # Write JSON file
+            with open(output_file, 'w') as f:
+                json.dump(graph_data, f, indent=2)
+
+            print(f"Captured {len(events)} trace events")
+            print(f"Trace data saved to: {output_file}")
+            print(f"Generated {len(graph_data['nodes'])} nodes and {len(graph_data['links'])} links")
 
 
 def run_traced_script(script_path: str, project_root: Optional[str] = None) -> List[Dict[str, Any]]:

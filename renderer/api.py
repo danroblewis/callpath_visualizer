@@ -20,13 +20,18 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 def get_trace_data():
     """Generate and return trace data."""
     trace_data_file = Path(__file__).parent.parent / "renderer" / "static" / "trace_data.json"
+
+    if trace_data_file.exists():
+        with open(trace_data_file, 'r') as f:
+            graph_data = json.load(f)
+        return graph_data
     
     # Run generate_trace_data.py to create/update the trace data
     try:
         script_path = Path(__file__).parent.parent / "generate_trace_data.py"
         result = subprocess.run(
             [sys.executable, str(script_path)],
-            capture_output=True,
+            capture_output=False,
             text=True,
             cwd=str(Path(__file__).parent.parent)
         )
